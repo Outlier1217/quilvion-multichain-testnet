@@ -1,131 +1,76 @@
-module quilvion::commerce {
+module commerce::commerce {
 
-    use sui::object;
-    use sui::tx_context;
-    use sui::coin;
-    use sui::transfer;
-    use sui::event;
-    use sui::sui::SUI;
+    use std::vector;
 
-    // ===============================
-    // CONSTANTS
-    // ===============================
-    const ESCROW_HOLD: u8 = 0;
-    const COMPLETED: u8 = 1;
+    use sui::tx_context::{Self, TxContext};
+    use sui::object::{Self, UID};
+    use sui::transfer; // ✅ ADD THIS LINE
 
-    const PLATFORM_FEE_BPS: u64 = 184; // 1.84%
+    use commerce::roles;
+    use commerce::config;
+    use commerce::escrow;
 
-    // ===============================
-    // ORDER STRUCT
-    // ===============================
-    struct Order has key {
-        id: object::UID,
+    struct Order has store {
+        id: u64,
         buyer: address,
         seller: address,
         amount: u64,
         status: u8,
+        created_at: u64,
+        risk: u64
     }
 
-    // ===============================
-    // VAULT (ESCROW)
-    // ===============================
-    struct Vault has key {
-        id: object::UID,
-        balance: coin::Coin<SUI>,
-        owner: address, // platform owner
+    struct Commerce has key {
+        id: UID,
+        orders: vector<Order>,
+        counter: u64,
+        cfg: config::Config,
+        esc: escrow::Escrow,
+        roles: roles::Roles,
     }
 
-    // ===============================
-    // EVENTS
-    // ===============================
-    struct OrderCreated has copy, drop {
-        order_id: object::ID,
-        buyer: address,
-        seller: address,
+    fun init(ctx: &mut TxContext) {
+
+        let commerce = Commerce {
+            id: object::new(ctx),
+            orders: vector::empty(),
+            counter: 0,
+            cfg: config::new(),
+            esc: escrow::new(ctx),
+            roles: roles::new(ctx)
+        };
+
+        transfer::share_object(commerce); // ✅ now works
     }
 
-    struct OrderCompleted has copy, drop {
-        order_id: object::ID,
-    }
-
-    // ===============================
-    // CREATE ORDER (ESCROW HOLD)
-    // ===============================
     public fun create_order(
+        c: &mut Commerce,
         seller: address,
-        payment: coin::Coin<SUI>,
-        ctx: &mut tx_context::TxContext
+        amount: u64,
+        ctx: &mut TxContext
     ) {
-        let buyer = tx_context::sender(ctx);
-        let amount = coin::value(&payment);
 
-        assert!(seller != buyer, 0);
-        assert!(amount > 0, 1);
+        let buyer = tx_context::sender(ctx);
+
+        escrow::update_limit(
+            &mut c.esc,
+            buyer,
+            amount,
+            config::get_daily_limit(&c.cfg)
+        );
+
+        c.counter = c.counter + 1;
 
         let order = Order {
-            id: object::new(ctx),
+            id: c.counter,
             buyer,
             seller,
             amount,
-            status: ESCROW_HOLD,
+            status: 0,
+            created_at: tx_context::epoch(ctx),
+            risk: 0
         };
 
-        // 🔐 Create Vault (Escrow)
-        let vault = Vault {
-            id: object::new(ctx),
-            balance: payment,
-            owner: buyer, // NOTE: will update later to platform owner
-        };
-
-        event::emit(OrderCreated {
-            order_id: object::id(&order),
-            buyer,
-            seller,
-        });
-
-        transfer::share_object(order);
-        transfer::share_object(vault);
-    }
-
-    // ===============================
-    // INTERNAL: PROCESS PAYOUT
-    // ===============================
-    fun process_payout(
-        vault: &mut Vault,
-        seller: address,
-        ctx: &mut tx_context::TxContext
-    ) {
-        let total = coin::value(&vault.balance);
-
-        let fee = (total * PLATFORM_FEE_BPS) / 10000;
-        let seller_amount = total - fee;
-
-        let fee_coin = coin::split(&mut vault.balance, fee, ctx);
-        let seller_coin = coin::split(&mut vault.balance, seller_amount, ctx);
-
-        transfer::public_transfer(fee_coin, vault.owner);
-        transfer::public_transfer(seller_coin, seller);
-    }
-
-    // ===============================
-    // CONFIRM DELIVERY → PAYOUT
-    // ===============================
-    public fun confirm_delivery(
-        order: &mut Order,
-        vault: &mut Vault,
-        ctx: &mut tx_context::TxContext
-    ) {
-        let sender = tx_context::sender(ctx);
-
-        assert!(sender == order.buyer, 2);
-        assert!(order.status == ESCROW_HOLD, 3);
-
-        order.status = COMPLETED;
-
-        process_payout(vault, order.seller, ctx);
-
-        event::emit(OrderCompleted {
-            order_id: object::id(order),
-        });
+        vector::push_back(&mut c.orders, order);
     }
 }

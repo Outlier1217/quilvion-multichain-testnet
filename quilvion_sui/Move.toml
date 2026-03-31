@@ -6,4 +6,4 @@ version = "0.0.1"
 Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "mainnet-v1.68.1" }
 
 [addresses]
-quilvion = "0x0"
+commerce = "0x0"
