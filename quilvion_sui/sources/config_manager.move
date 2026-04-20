@@ -12,7 +12,7 @@ module quilvion::config_manager {
     const ENotAuthorized: u64 = 1;
     const EInvalidBasisPoints: u64 = 2;
 
-    // Config Manager object — `public` required in Move 2024
+    // Config Manager object  `public` required in Move 2024
     public struct ConfigManager has key {
         id: UID,
         daily_spend_limit: u64,
