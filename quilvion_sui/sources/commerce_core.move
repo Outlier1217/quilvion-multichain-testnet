@@ -66,7 +66,7 @@ module quilvion::commerce_core {
 
     // Create a new order
     // NOTE: `payment` uses SUI as a placeholder. Replace `SUI` with your actual USDC type
-    // once you have its package address (e.g. `use 0xABC::usdc::USDC`).
+    // once you have its package address (e.g. `use 0xABC::usdc::USDC`)
     public fun create_order(
         core: &mut CommerceCore,
         escrow_manager: &mut escrow_logic::EscrowManager,
