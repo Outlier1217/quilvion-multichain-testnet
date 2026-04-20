@@ -12,7 +12,7 @@ module quilvion::roles {
     const ERoleAlreadyGranted: u64 = 2;
     const ERoleNotGranted: u64 = 3;
 
-    // `public` required on all structs in Move 2024
+    // `public required on all structs in Move 2024
     public struct RoleManager has key {
         id: UID,
         roles: Table<address, vector<vector<u8>>>,
