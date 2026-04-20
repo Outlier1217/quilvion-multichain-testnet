@@ -1,7 +1,7 @@
 module quilvion::events {
     use sui::event;
 
-    // All structs must be `public` in Move 2024 edition
+    // All structs must be `public in Move 2024 edition
     public struct OrderCreated has copy, drop {
         order_id: u64,
         buyer: address,
