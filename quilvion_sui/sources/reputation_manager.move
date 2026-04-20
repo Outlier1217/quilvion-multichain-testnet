@@ -9,7 +9,7 @@ module quilvion::reputation_manager {
     // XP per order
     const XP_PER_ORDER: u64 = 10;
 
-    // Merchant score adjustments
+    // Merchant score adjustment
     const SCORE_INCREASE: u64 = 5;
     const SCORE_DECREASE: u64 = 20;
     const MAX_MERCHANT_SCORE: u64 = 100;
