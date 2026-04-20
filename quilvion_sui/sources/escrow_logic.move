@@ -3,7 +3,7 @@ module quilvion::escrow_logic {
     use sui::table::{Self, Table};
     use quilvion::config_manager;
 
-    // All structs must be `public` in Move 2024
+    // All structs must be `public`in Move 2024
     public struct EscrowRecord has store {
         order_id: u64,
         amount: u64,
