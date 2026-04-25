@@ -100,3 +100,10 @@ event TierUpgraded(address buyer, string tier);
 event TierBadgeMinted(address wallet, uint8 tier);
 Note: MerchantVerified event REMOVED — no on-chain verification
 
+
+
+product_type (DIGITAL only)	Haan, digital product logic ke liye
+risk_score field in Order	Haan, AI fraud score ke liye
+content_hash for delivery	Haan, digital product delivery ke liye
+Daily spend tracking	Haan, security ke liye
+Treasury withdrawal (withdraw_treasury())	Haan, admin fee collect kar sake
