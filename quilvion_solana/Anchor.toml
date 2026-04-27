@@ -3,7 +3,7 @@ seeds = false
 skip-lint = false
 
 [programs.localnet]
-commerce_core = "DFsnsGdMsQxwfzmm9m6xyVhbvteQT2VBcRNXf6pX5UCD"
+commerce_core = "8YPzbK3t3vgJkV2dPo33wDDhyaV3oghtUn9RbQf2aSDx"
 
 [registry]
 url = "https://api.apr.dev"
