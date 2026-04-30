@@ -1,4 +1,4 @@
-module quilvion::roles {
+module quilvion::access_control {
     use sui::table::{Self, Table};
 
     // Role constants stored as vector<u8> directly — no string::bytes() needed
