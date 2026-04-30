@@ -1,18 +1,17 @@
 /// commerce_core.move
-/// Platform fee is automatically deducted on every order settlement.
-/// Fee goes to EscrowManager treasury; admin can withdraw via
-/// escrow_logic::withdraw_treasury().
+/// All monetary values in USDC micro-units (6 decimals: 1 USDC = 1_000_000).
+/// Platform fee auto-deducted in USDC on every settlement.
 module quilvion::commerce_core {
     use sui::clock::Clock;
     use sui::coin::{Self, Coin};
-    use sui::sui::SUI;
     use sui::table::{Self, Table};
-    use sui::transfer;
-    use quilvion::roles;
+    // sui::transfer is auto-imported in Move 2024 — no explicit use needed
+    use quilvion::access_control as roles;
     use quilvion::config_manager;
     use quilvion::escrow_logic;
     use quilvion::reputation_manager;
     use quilvion::events;
+    use usdc::usdc::USDC;
 
     // ── Order status ──────────────────────────────────────────────────────────
 
@@ -29,13 +28,13 @@ module quilvion::commerce_core {
 
     // ── Error codes ───────────────────────────────────────────────────────────
 
-    const ENotMerchant:    u64 = 1;
-    const ENotBuyer:       u64 = 2;
-    const EOrderNotFound:  u64 = 3;
-    const EInvalidStatus:  u64 = 4;
-    const EDisputeTooLate: u64 = 5;
+    const ENotMerchant:     u64 = 1;
+    const ENotBuyer:        u64 = 2;
+    const EOrderNotFound:   u64 = 3;
+    const EInvalidStatus:   u64 = 4;
+    const EDisputeTooLate:  u64 = 5;
     const EAlreadyDisputed: u64 = 6;
-    const ENotAuthorized:  u64 = 7;
+    const ENotAuthorized:   u64 = 7;
     const EOrderNotPending: u64 = 8;
 
     // ── Structs ───────────────────────────────────────────────────────────────
@@ -45,8 +44,8 @@ module quilvion::commerce_core {
         product_id:           u64,
         buyer:                address,
         merchant:             address,
-        amount:               u64,   // total amount paid by buyer (before fee)
-        fee_amount:           u64,   // platform fee deducted on settlement
+        amount:               u64,      // total USDC paid (micro-units, pre-fee)
+        fee_amount:           u64,      // USDC fee deducted on settlement (micro-units)
         status:               u8,
         product_type:         u8,
         content_hash:         vector<u8>,
@@ -74,9 +73,9 @@ module quilvion::commerce_core {
 
     // ── Public entry points ───────────────────────────────────────────────────
 
-    /// Create a new order.
-    /// Pass a Coin<SUI> whose value equals the full order amount.
-    /// Split beforehand: `coin::split(&mut wallet_coin, amount, ctx)`.
+    /// Create a new order. Pass a Coin<USDC> equal to the full order amount.
+    /// Frontend: split coin before calling → coin::split(&mut usdc_coin, amount, ctx)
+    /// Example: 10 USDC → amount = 10_000_000
     public fun create_order(
         core:            &mut CommerceCore,
         escrow_manager:  &mut escrow_logic::EscrowManager,
@@ -86,19 +85,18 @@ module quilvion::commerce_core {
         product_id:      u64,
         merchant_wallet: address,
         product_type:    u8,
-        payment:         Coin<SUI>,
+        payment:         Coin<USDC>,
         clock:           &Clock,
         ctx:             &mut TxContext,
     ) {
         let buyer  = tx_context::sender(ctx);
         let amount = coin::value(&payment);
 
-        // Daily spend check
+        // Daily USDC spend check (limit in micro-units from ConfigManager)
         escrow_logic::track_daily_spend(escrow_manager, buyer, amount, config, clock);
 
         let order_id = core.next_order_id;
 
-        // Lock full payment in escrow
         escrow_logic::lock_funds(
             escrow_manager,
             order_id,
@@ -117,7 +115,7 @@ module quilvion::commerce_core {
             buyer,
             merchant:             merchant_wallet,
             amount,
-            fee_amount:           0,   // filled in on settlement
+            fee_amount:           0,
             status:               ORDER_STATUS_PENDING,
             product_type,
             content_hash:         vector::empty(),
@@ -130,7 +128,7 @@ module quilvion::commerce_core {
         core.next_order_id = core.next_order_id + 1;
         events::emit_order_created(order_id, buyer, merchant_wallet, amount);
 
-        // Auto-complete: digital product + below admin threshold
+        // Auto-complete: digital product + below admin threshold (USDC micro-units)
         let threshold = config_manager::get_admin_approval_threshold(config);
         if (product_type == PRODUCT_TYPE_DIGITAL && amount < threshold) {
             complete_order(
@@ -140,9 +138,7 @@ module quilvion::commerce_core {
         };
     }
 
-    /// Complete an order.
-    /// Platform fee is deducted automatically; merchant receives amount - fee.
-    /// Fee accumulates in EscrowManager treasury.
+    /// Complete an order. USDC fee auto-deducted; merchant gets (amount - fee).
     public fun complete_order(
         core:           &mut CommerceCore,
         escrow_manager: &mut escrow_logic::EscrowManager,
@@ -159,14 +155,10 @@ module quilvion::commerce_core {
 
         order.status = ORDER_STATUS_COMPLETED;
 
-        // Read fee from config
         let fee_bps = (config_manager::get_platform_fee_bps(config) as u64);
-
-        // Release funds with fee split — fee stays in treasury
         let (_merchant_amount, fee_amount) =
             escrow_logic::release_funds_with_fee(escrow_manager, order_id, fee_bps, ctx);
 
-        // Record fee on order for transparency
         order.fee_amount = fee_amount;
 
         reputation_manager::award_xp(rep_manager, order.buyer, order_id, ctx);
@@ -175,7 +167,7 @@ module quilvion::commerce_core {
         events::emit_order_completed(order_id);
     }
 
-    /// Admin force-releases escrow to merchant WITH fee deduction.
+    /// Admin force-releases escrow to merchant WITH USDC fee deduction.
     public fun release_escrow(
         core:           &mut CommerceCore,
         escrow_manager: &mut escrow_logic::EscrowManager,
@@ -206,7 +198,7 @@ module quilvion::commerce_core {
         events::emit_order_completed(order_id);
     }
 
-    /// Cancel order — full refund to buyer, NO fee deducted on cancellation.
+    /// Cancel order — full USDC refund to buyer, no fee on cancellation.
     public fun cancel_order(
         core:           &mut CommerceCore,
         escrow_manager: &mut escrow_logic::EscrowManager,
@@ -229,7 +221,7 @@ module quilvion::commerce_core {
         escrow_logic::refund_funds(escrow_manager, order_id, ctx);
     }
 
-    /// Merchant delivers a digital product — records IPFS/content hash on-chain.
+    /// Merchant delivers digital product — records IPFS/content hash on-chain.
     public fun deliver_digital_product(
         core:         &mut CommerceCore,
         role_manager: &roles::RoleManager,
@@ -248,7 +240,7 @@ module quilvion::commerce_core {
         order.content_hash = content_hash;
     }
 
-    /// Buyer raises a dispute within the refund window.
+    /// Buyer raises dispute within refund window.
     public fun raise_dispute(
         core:     &mut CommerceCore,
         config:   &config_manager::ConfigManager,
@@ -276,9 +268,9 @@ module quilvion::commerce_core {
         events::emit_order_disputed(order_id, order.buyer);
     }
 
-    /// Admin resolves a dispute.
-    /// favor_buyer = true  → full refund to buyer, NO fee
-    /// favor_buyer = false → release to merchant WITH fee deducted
+    /// Admin resolves dispute.
+    /// favor_buyer=true  → full USDC refund, no fee
+    /// favor_buyer=false → USDC to merchant with fee deducted
     public fun resolve_dispute(
         core:           &mut CommerceCore,
         escrow_manager: &mut escrow_logic::EscrowManager,
@@ -297,14 +289,12 @@ module quilvion::commerce_core {
         assert!(order.status == ORDER_STATUS_DISPUTED, EInvalidStatus);
 
         if (favor_buyer) {
-            // Full refund — buyer gets everything back, no fee
             order.status = ORDER_STATUS_REFUNDED;
             escrow_logic::refund_funds(escrow_manager, order_id, ctx);
             reputation_manager::update_merchant_score(
                 rep_manager, order.merchant, order_id, true, ctx,
             );
         } else {
-            // Merchant wins — fee is deducted, merchant gets rest
             order.status = ORDER_STATUS_ESCROW_RELEASED;
             let fee_bps = (config_manager::get_platform_fee_bps(config) as u64);
             let (_merchant_amount, fee_amount) =
@@ -319,7 +309,7 @@ module quilvion::commerce_core {
         events::emit_dispute_resolved(order_id, favor_buyer);
     }
 
-    /// BOT_ROLE sets AI fraud risk score (0–100) on an order.
+    /// BOT_ROLE sets AI fraud risk score (0–100).
     public fun set_risk_score(
         core:         &mut CommerceCore,
         role_manager: &roles::RoleManager,
@@ -337,19 +327,17 @@ module quilvion::commerce_core {
 
     // ── View functions ────────────────────────────────────────────────────────
 
-    /// Get risk score for an order.
     public fun get_order_risk_score(core: &CommerceCore, order_id: u64): u8 {
         assert!(table::contains(&core.orders, order_id), EOrderNotFound);
         table::borrow(&core.orders, order_id).risk_score
     }
 
-    /// Get fee charged on a settled order (0 if still pending).
+    /// USDC fee charged on settled order (micro-units). 0 if still pending.
     public fun get_order_fee(core: &CommerceCore, order_id: u64): u64 {
         assert!(table::contains(&core.orders, order_id), EOrderNotFound);
         table::borrow(&core.orders, order_id).fee_amount
     }
 
-    /// Get order status.
     public fun get_order_status(core: &CommerceCore, order_id: u64): u8 {
         assert!(table::contains(&core.orders, order_id), EOrderNotFound);
         table::borrow(&core.orders, order_id).status

@@ -1,15 +1,17 @@
 /// escrow_logic.move
-/// Stores actual funds as Balance<SUI> inside each EscrowRecord.
-/// Platform fees are accumulated in a treasury Balance<SUI> inside
+/// Stores actual funds as Balance<USDC> inside each EscrowRecord.
+/// Platform fees are accumulated in a treasury Balance<USDC> inside
 /// EscrowManager and can be withdrawn by an admin at any time.
+///
+/// USDC decimals: 6  →  1 USDC = 1_000_000 units
 module quilvion::escrow_logic {
     use sui::balance::{Self, Balance};
     use sui::clock::Clock;
     use sui::coin::{Self, Coin};
-    use sui::sui::SUI;
     use sui::table::{Self, Table};
-    use sui::transfer;
+    // sui::transfer is auto-imported in Move 2024 — no explicit use needed
     use quilvion::config_manager;
+    use usdc::usdc::USDC;
 
     // ── Structs ───────────────────────────────────────────────────────────────
 
@@ -20,7 +22,7 @@ module quilvion::escrow_logic {
         is_locked:   bool,
         is_released: bool,
         created_at:  u64,
-        funds:       Balance<SUI>,
+        funds:       Balance<USDC>,
     }
 
     public struct DailySpend has store {
@@ -33,8 +35,8 @@ module quilvion::escrow_logic {
         id:           UID,
         escrows:      Table<u64, EscrowRecord>,
         daily_spends: Table<address, DailySpend>,
-        /// Accumulated platform fees — withdrawn by admin via withdraw_treasury()
-        treasury:     Balance<SUI>,
+        /// Accumulated USDC platform fees — admin withdraws via withdraw_treasury()
+        treasury:     Balance<USDC>,
     }
 
     // ── Error codes ───────────────────────────────────────────────────────────
@@ -53,20 +55,20 @@ module quilvion::escrow_logic {
             id:           object::new(ctx),
             escrows:      table::new(ctx),
             daily_spends: table::new(ctx),
-            treasury:     balance::zero<SUI>(),
+            treasury:     balance::zero<USDC>(),
         });
     }
 
     // ── Core escrow operations ────────────────────────────────────────────────
 
-    /// Lock a Coin<SUI> in escrow for `order_id`.
-    /// The coin is fully consumed here.
+    /// Lock a Coin<USDC> in escrow for `order_id`.
+    /// Coin is fully consumed here. Split on frontend before calling.
     public fun lock_funds(
         escrow_manager: &mut EscrowManager,
         order_id: u64,
         merchant: address,
         buyer:    address,
-        payment:  Coin<SUI>,
+        payment:  Coin<USDC>,
         clock:    &Clock,
         _ctx:     &mut TxContext,
     ) {
@@ -84,18 +86,14 @@ module quilvion::escrow_logic {
         });
     }
 
-    /// Release funds to merchant WITH platform fee deduction.
-    ///
-    /// fee_bps  — platform fee in basis points (e.g. 250 = 2.5%)
-    ///            pass config_manager::get_platform_fee_bps(config)
-    ///
-    /// Returns  — (merchant_amount, fee_amount)
-    ///
-    /// Fee goes into treasury; merchant gets the rest immediately.
+    /// Release USDC to merchant WITH platform fee deduction.
+    /// fee_bps — basis points from ConfigManager (e.g. 250 = 2.5%)
+    /// Returns (merchant_amount, fee_amount) both in USDC micro-units.
+    /// Fee accumulates in treasury; merchant is paid immediately.
     public fun release_funds_with_fee(
         escrow_manager: &mut EscrowManager,
         order_id: u64,
-        fee_bps:  u64,   // e.g. 250 for 2.5%
+        fee_bps:  u64,
         ctx:      &mut TxContext,
     ): (u64, u64) {
         assert!(table::contains(&escrow_manager.escrows, order_id), EOrderNotFound);
@@ -108,11 +106,9 @@ module quilvion::escrow_logic {
         let total    = balance::value(&record.funds);
         let merchant = record.merchant;
 
-        // fee_amount = total * fee_bps / 10_000  (integer division, rounds down)
         let fee_amount      = (total * fee_bps) / 10_000;
         let merchant_amount = total - fee_amount;
 
-        // Split: fee stays in treasury, rest goes to merchant
         let mut full_balance = balance::withdraw_all(&mut record.funds);
 
         if (fee_amount > 0) {
@@ -126,9 +122,8 @@ module quilvion::escrow_logic {
         (merchant_amount, fee_amount)
     }
 
-    /// Legacy release (no fee) — kept for backward compat / dispute resolution
-    /// in favor of merchant where fee was already considered 0.
-    /// Returns total amount released.
+    /// Release full USDC to merchant with no fee (dispute resolution / legacy).
+    /// Returns total amount released in USDC micro-units.
     public fun release_funds(
         escrow_manager: &mut EscrowManager,
         order_id: u64,
@@ -150,7 +145,7 @@ module quilvion::escrow_logic {
         amount
     }
 
-    /// Refund full amount to buyer (no fee deducted on refund).
+    /// Refund full USDC to buyer — no fee on refund.
     public fun refund_funds(
         escrow_manager: &mut EscrowManager,
         order_id: u64,
@@ -169,17 +164,17 @@ module quilvion::escrow_logic {
 
     // ── Treasury management ───────────────────────────────────────────────────
 
-    /// Admin withdraws accumulated platform fees from treasury.
-    /// `amount` — how much to withdraw (pass treasury_balance() to withdraw all)
+    /// Admin withdraws accumulated USDC fees from treasury.
+    /// `amount` in micro-units. Pass treasury_balance() to withdraw all.
     public fun withdraw_treasury(
         escrow_manager: &mut EscrowManager,
         amount:       u64,
         recipient:    address,
-        role_manager: &quilvion::roles::RoleManager,
+        role_manager: &quilvion::access_control::RoleManager,
         ctx:          &mut TxContext,
     ) {
         assert!(
-            quilvion::roles::is_admin(role_manager, tx_context::sender(ctx)),
+            quilvion::access_control::is_admin(role_manager, tx_context::sender(ctx)),
             ENotAuthorized,
         );
         assert!(
@@ -194,12 +189,13 @@ module quilvion::escrow_logic {
         transfer::public_transfer(withdrawn, recipient);
     }
 
-    /// View: how much is in the treasury right now.
+    /// View: USDC in treasury (micro-units).
     public fun treasury_balance(escrow_manager: &EscrowManager): u64 {
         balance::value(&escrow_manager.treasury)
     }
 
     // ── Daily spend tracking ──────────────────────────────────────────────────
+    // All amounts in USDC micro-units. ConfigManager limit also in micro-units.
 
     public fun track_daily_spend(
         escrow_manager: &mut EscrowManager,
@@ -254,7 +250,7 @@ module quilvion::escrow_logic {
         r.is_locked && !r.is_released
     }
 
-    /// Returns (amount, merchant, buyer, created_at)
+    /// Returns (usdc_amount_micro, merchant, buyer, created_at_ms)
     public fun get_escrow(
         escrow_manager: &EscrowManager,
         order_id: u64,
@@ -269,10 +265,10 @@ module quilvion::escrow_logic {
     public fun reset_daily_spend(
         escrow_manager: &mut EscrowManager,
         wallet:       address,
-        role_manager: &quilvion::roles::RoleManager,
+        role_manager: &quilvion::access_control::RoleManager,
         ctx:          &TxContext,
     ) {
-        assert!(quilvion::roles::is_admin(role_manager, tx_context::sender(ctx)), ENotAuthorized);
+        assert!(quilvion::access_control::is_admin(role_manager, tx_context::sender(ctx)), ENotAuthorized);
         if (table::contains(&escrow_manager.daily_spends, wallet)) {
             table::borrow_mut(&mut escrow_manager.daily_spends, wallet).amount = 0;
         };
