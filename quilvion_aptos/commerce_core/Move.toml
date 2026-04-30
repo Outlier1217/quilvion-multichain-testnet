@@ -1,0 +1,16 @@
+[package]
+name = "commerce_core"
+version = "1.0.0"
+authors = []
+
+[addresses]
+commerce_core = "0x6a5ee5f6cb4352c6cb803ab5a345d707c228ecbdc8136c04916299dc08300f97"
+
+[dev-addresses]
+
+[dependencies.AptosFramework]
+git = "https://github.com/aptos-labs/aptos-framework.git"
+rev = "mainnet"
+subdir = "aptos-framework"
+
+[dev-dependencies]
