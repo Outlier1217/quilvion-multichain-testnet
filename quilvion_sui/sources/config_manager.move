@@ -1,5 +1,5 @@
 module quilvion::config_manager {
-    use quilvion::roles;
+    use quilvion::access_control as roles;
 
     // Configuration constants
     const DEFAULT_DAILY_SPEND_LIMIT: u64 = 1_000_000_000; // 1000 USDC (6 decimals)
