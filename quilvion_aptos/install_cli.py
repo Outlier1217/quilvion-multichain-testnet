@@ -1,0 +1,959 @@
+#!/usr/bin/env python3
+r"""
+This script installs the Aptos CLI.
+
+It will perform the following steps:
+- Determine what platform (OS + arch) the script is being invoked from.
+- Download the CLI.
+- Put it in an appropriate location.
+
+This was adapted from the install script for Poetry.
+"""
+
+import argparse
+import json
+import os
+import platform
+import re
+import shutil
+import subprocess
+import sys
+import sysconfig
+import tempfile
+import time
+import warnings
+from contextlib import closing
+from functools import wraps
+from io import UnsupportedOperation
+from pathlib import Path
+from typing import Optional, Callable, Any
+from urllib.error import URLError, HTTPError
+from urllib.request import Request, urlopen, urlretrieve
+
+try:
+    from packaging.version import Version
+except ImportError:
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=DeprecationWarning)
+            from distutils.version import StrictVersion as Version
+    except ImportError:
+        print(
+            "Couldn't find distutils or packaging. We cannot check the current version of the CLI. We will install the latest version.",
+        )
+        Version = None
+
+SHELL = os.getenv("SHELL", "")
+WINDOWS = sys.platform.startswith("win") or (sys.platform == "cli" and os.name == "nt")
+MINGW = sysconfig.get_platform().startswith("mingw")
+MACOS = sys.platform == "darwin"
+SCRIPT = "aptos.exe" if WINDOWS else "aptos"
+TEST_COMMAND = f"{SCRIPT} info"
+
+X86_64 = ["x86_64", "amd64"]
+SUPPORTED_ARCHITECTURES = {
+    "macos": X86_64 + ["arm64", "aarch64"],
+    "linux": X86_64 + ["arm64", "aarch64"],
+    "windows": X86_64,
+}
+
+FOREGROUND_COLORS = {
+    "black": 30,
+    "red": 31,
+    "green": 32,
+    "yellow": 33,
+    "blue": 34,
+    "magenta": 35,
+    "cyan": 36,
+    "white": 37,
+}
+
+BACKGROUND_COLORS = {
+    "black": 40,
+    "red": 41,
+    "green": 42,
+    "yellow": 43,
+    "blue": 44,
+    "magenta": 45,
+    "cyan": 46,
+    "white": 47,
+}
+
+OPTIONS = {"bold": 1, "underscore": 4, "blink": 5, "reverse": 7, "conceal": 8}
+
+
+def style(fg, bg, options):
+    codes = []
+
+    if fg:
+        codes.append(FOREGROUND_COLORS[fg])
+
+    if bg:
+        codes.append(BACKGROUND_COLORS[bg])
+
+    if options:
+        if not isinstance(options, (list, tuple)):
+            options = [options]
+
+        for option in options:
+            codes.append(OPTIONS[option])
+
+    return "\033[{}m".format(";".join(map(str, codes)))
+
+
+STYLES = {
+    "info": style("cyan", None, None),
+    "comment": style("yellow", None, None),
+    "success": style("green", None, None),
+    "error": style("red", None, None),
+    "warning": style("yellow", None, None),
+    "b": style(None, None, ("bold",)),
+}
+
+
+def is_decorated():
+    if WINDOWS:
+        return (
+            os.getenv("ANSICON") is not None
+            or "ON" == os.getenv("ConEmuANSI")
+            or "xterm" == os.getenv("Term")
+        )
+
+    if not hasattr(sys.stdout, "fileno"):
+        return False
+
+    try:
+        return os.isatty(sys.stdout.fileno())
+    except UnsupportedOperation:
+        return False
+
+
+def is_interactive():
+    if not hasattr(sys.stdin, "fileno"):
+        return False
+
+    try:
+        return os.isatty(sys.stdin.fileno())
+    except UnsupportedOperation:
+        return False
+
+
+def colorize(style, text):
+    if not is_decorated():
+        return text
+
+    return f"{STYLES[style]}{text}\033[0m"
+
+
+def string_to_bool(value):
+    value = value.lower()
+
+    return value in {"true", "1", "y", "yes"}
+
+
+def bin_dir() -> Path:
+    if WINDOWS and not MINGW:
+        # ~ is %USERPROFILE% on Windows
+        return Path("~/.aptoscli/bin").expanduser()
+    else:
+        return Path("~/.local/bin").expanduser()
+
+
+PRE_MESSAGE = """Welcome to the {aptos} CLI installer!
+
+This will download and install the latest version of the {aptos} CLI at this location:
+
+{aptos_home_bin}
+"""
+
+POST_MESSAGE = """The {aptos} CLI ({version}) is installed now. Great!
+
+You can test that everything is set up by executing this command:
+
+{test_command}
+"""
+
+POST_MESSAGE_NOT_IN_PATH = """The {aptos} CLI ({version}) is installed now. Great!
+
+To get started you need the {aptos} CLI's bin directory ({aptos_home_bin}) in your `PATH`
+environment variable.
+{configure_message}
+Alternatively, you can call the {aptos} CLI explicitly with `{aptos_executable}`.
+
+You can test that everything is set up by executing:
+
+{test_command}
+"""
+
+POST_MESSAGE_CONFIGURE_UNIX = """
+Add the following to your shell configuration file (e.g. .bashrc):
+
+export PATH="{aptos_home_bin}:$PATH"
+
+After this, restart your terminal.
+"""
+
+POST_MESSAGE_CONFIGURE_FISH = """
+You can execute `set -U fish_user_paths {aptos_home_bin} $fish_user_paths`
+"""
+
+POST_MESSAGE_CONFIGURE_WINDOWS = """
+Execute the following command to update your PATH:
+
+setx PATH "%PATH%;{aptos_home_bin}"
+
+After this, restart your terminal.
+"""
+
+
+def retry_network_operation(max_retries: int = 4):
+    """Decorator to retry network operations with exponential backoff."""
+    def decorator(func: Callable) -> Callable:
+        @wraps(func)
+        def wrapper(self, *args, **kwargs) -> Any:
+            for attempt in range(max_retries):
+                try:
+                    return func(self, *args, **kwargs)
+                except Exception as e:
+                    if attempt < max_retries - 1:
+                        wait_time = 3 ** attempt  # Exponential backoff
+                        self._write(f"Error on attempt {attempt + 1}, retrying in {wait_time} seconds: {e}")
+                        time.sleep(wait_time)
+                    else:
+                        self._write(f"Failed after {max_retries} attempts")
+                        raise
+        return wrapper
+    return decorator
+
+
+class InstallationError(RuntimeError):
+    def __init__(self, return_code: int = 0, log: Optional[str] = None):
+        super().__init__()
+        self.return_code = return_code
+        self.log = log
+
+
+class Installer:
+    # The API returns the newest items first. Accordingly we expect the CLI release to
+    # be in the last 100 releases (the max for a single page).
+    METADATA_URL = (
+        "https://api.github.com/repos/aptos-labs/aptos-core/releases?per_page=100"
+    )
+    APTOS_REPO_URL = "https://github.com/aptos-labs/aptos-core.git"
+
+    def __init__(
+        self,
+        version: Optional[str] = None,
+        force: bool = False,
+        accept_all: bool = False,
+        bin_dir: Optional[str] = None,
+        from_source: bool = False,
+    ) -> None:
+        self._version = version
+        self._force = force
+        self._accept_all = accept_all
+        self._bin_dir = Path(bin_dir).expanduser() if bin_dir else None
+        self._from_source = from_source
+
+        self._release_info = None
+        self._latest_release_info = None
+
+    @property
+    def bin_dir(self) -> Path:
+        if not self._bin_dir:
+            self._bin_dir = bin_dir()
+        return self._bin_dir
+
+    @property
+    def bin_path(self):
+        return self.bin_dir.joinpath(SCRIPT)
+
+    @property
+    def release_info(self):
+        if not self._release_info:
+            self._release_info = self._get_json(self.METADATA_URL)
+        return self._release_info
+
+    @property
+    def latest_release_info(self):
+        # Iterate through the releases and find the latest CLI release.
+        for release in self.release_info:
+            if release["tag_name"].startswith("aptos-cli-"):
+                return release
+        raise RuntimeError("Failed to find latest CLI release")
+
+    def run(self) -> int:
+        # Handle installation from source
+        if self._from_source:
+            return self.run_from_source()
+
+        try:
+            version, _current_version = self.get_version()
+        except ValueError:
+            return 1
+
+        if version is None:
+            return 0
+
+        try:
+            target = self.get_target()
+        except:
+            return 1
+
+        if target is None:
+            return 0
+
+        self._write(colorize("info", "Determined target to be: {}".format(target)))
+        self._write("")
+
+        self.display_pre_message()
+
+        try:
+            self.install(version, target)
+        except subprocess.CalledProcessError as e:
+            raise InstallationError(return_code=e.returncode, log=e.output.decode())
+
+        self._write("")
+        self.display_post_message(version)
+
+        return 0
+
+    def install(self, version, target):
+        self._install_comment(version, "Downloading...")
+
+        self.bin_dir.mkdir(parents=True, exist_ok=True)
+        if self.bin_path.exists():
+            self.bin_path.unlink()
+
+        url = self.build_binary_url(version, target)
+
+        with tempfile.TemporaryDirectory() as tmpdirname:
+            zip_file = os.path.join(tmpdirname, "aptos-cli.zip")
+            
+            # Download with retry logic
+            self._download_file(url, zip_file)
+            
+            # This assumes that the binary within the zip file is always
+            # called `aptos` / `aptos.exe`.
+            shutil.unpack_archive(zip_file, self.bin_dir)
+
+        os.chmod(self.bin_path, 0o755)
+
+        self._install_comment(version, "Done!")
+        return 0
+
+    def _install_comment(self, version: str, message: str):
+        self._write(
+            "Installing {} CLI ({}): {}".format(
+                colorize("info", "Aptos"),
+                colorize("b", version),
+                colorize("comment", message),
+            )
+        )
+
+    def build_binary_url(self, version: str, target: str) -> str:
+        return f"https://github.com/aptos-labs/aptos-core/releases/download/aptos-cli-v{version}/aptos-cli-{version}-{target}.zip"
+
+    def display_pre_message(self) -> None:
+        kwargs = {
+            "aptos": colorize("info", "Aptos"),
+            "aptos_home_bin": colorize("comment", self.bin_dir),
+        }
+        self._write(PRE_MESSAGE.format(**kwargs))
+
+    def display_post_message(self, version: str) -> None:
+        if WINDOWS:
+            return self.display_post_message_windows(version)
+
+        if SHELL == "fish":
+            return self.display_post_message_fish(version)
+
+        return self.display_post_message_unix(version)
+
+    def get_windows_path_var(self) -> Optional[str]:
+        import winreg
+
+        with winreg.ConnectRegistry(None, winreg.HKEY_CURRENT_USER) as root:
+            with winreg.OpenKey(root, "Environment", 0, winreg.KEY_ALL_ACCESS) as key:
+                path, _ = winreg.QueryValueEx(key, "PATH")
+
+                return path
+
+    def display_post_message_windows(self, version: str) -> None:
+        path = self.get_windows_path_var()
+
+        message = POST_MESSAGE_NOT_IN_PATH
+        if path and str(self.bin_dir) in path:
+            message = POST_MESSAGE
+
+        self._write(
+            message.format(
+                aptos=colorize("info", "Aptos"),
+                version=colorize("b", version),
+                aptos_home_bin=colorize("comment", self.bin_dir),
+                aptos_executable=colorize("b", self.bin_path),
+                configure_message=POST_MESSAGE_CONFIGURE_WINDOWS.format(
+                    aptos_home_bin=colorize("comment", self.bin_dir)
+                ),
+                test_command=colorize("b", TEST_COMMAND),
+            )
+        )
+
+    def display_post_message_fish(self, version: str) -> None:
+        fish_user_paths = subprocess.check_output(
+            ["fish", "-c", "echo $fish_user_paths"]
+        ).decode("utf-8")
+
+        message = POST_MESSAGE_NOT_IN_PATH
+        if fish_user_paths and str(self.bin_dir) in fish_user_paths:
+            message = POST_MESSAGE
+
+        self._write(
+            message.format(
+                aptos=colorize("info", "Aptos"),
+                version=colorize("b", version),
+                aptos_home_bin=colorize("comment", self.bin_dir),
+                aptos_executable=colorize("b", self.bin_path),
+                configure_message=POST_MESSAGE_CONFIGURE_FISH.format(
+                    aptos_home_bin=colorize("comment", self.bin_dir)
+                ),
+                test_command=colorize("b", TEST_COMMAND),
+            )
+        )
+
+    def display_post_message_unix(self, version: str) -> None:
+        paths = os.getenv("PATH", "").split(":")
+
+        message = POST_MESSAGE_NOT_IN_PATH
+        if paths and str(self.bin_dir) in paths:
+            message = POST_MESSAGE
+
+        self._write(
+            message.format(
+                aptos=colorize("info", "Aptos"),
+                version=colorize("b", version),
+                aptos_home_bin=colorize("comment", self.bin_dir),
+                aptos_executable=colorize("b", self.bin_path),
+                configure_message=POST_MESSAGE_CONFIGURE_UNIX.format(
+                    aptos_home_bin=colorize("comment", self.bin_dir)
+                ),
+                test_command=colorize("b", TEST_COMMAND),
+            )
+        )
+
+    def get_version(self):
+        if self._version:
+            version_to_install = self._version
+            self._write(colorize("info", "Installing CLI version: {}".format(version_to_install)))
+        else:
+            version_to_install = self.latest_release_info["tag_name"].split("-v")[-1]
+            self._write(colorize("info", "Latest CLI release: {}".format(version_to_install)))
+
+        if self._force:
+            return version_to_install, None
+
+        binary_path = self.bin_path
+        try:
+            out = subprocess.check_output(
+                [binary_path, "--version"],
+                universal_newlines=True,
+            )
+            current_version = current_version = out.split(" ")[-1].rstrip().lstrip()
+        except Exception:
+            current_version = None
+
+        self._write(
+            colorize("info", "Currently installed CLI: {}".format(current_version))
+        )
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=DeprecationWarning)
+            if (
+                Version is not None
+                and current_version
+                and Version(current_version) >= Version(version_to_install)
+            ):
+                self._write("")
+                self._write(
+                    f'The latest version ({colorize("b", current_version)}) is already installed.'
+                )
+                if Version(version_to_install) < Version(current_version):
+                    self._write(
+                        f"The version you are trying to install ({colorize('b', version_to_install)}) is older than the currently installed version ({colorize('b', current_version)}). Use --force to bypass."
+                    )
+
+                return None, current_version
+            else:
+                self._write(f"Installing {colorize('b', version_to_install)}")
+
+        return version_to_install, current_version
+
+    # Given the OS and CPU architecture, determine the "target" to download.
+    def get_target(self):
+        self._write(
+                colorize(
+                    "info",
+                    "Checking OS and architecture...",
+                )
+            )
+        # We only look this up for validation, we only need the OS to figure out which
+        # binary to download right now since we only build for x86_64 right now.
+        arch = (platform.machine() or platform.processor()).lower()
+        os = "windows" if WINDOWS else "macos" if MACOS else "linux"
+
+        self._write(
+                colorize(
+                    "info",
+                    f"OS: {os} Architecture: {arch} Platform: {sys.platform}",
+                )
+            )
+
+        if not arch in SUPPORTED_ARCHITECTURES[os]:
+            self._write(
+                colorize(
+                    "error",
+                    f"The given OS ({os}) + CPU architecture ({arch}) is not supported.",
+                )
+            )
+            return None
+
+        if WINDOWS:
+            return "Windows-x86_64"
+
+        if MACOS:
+            sys.stdout.write(
+                colorize(
+                    "error",
+                    "You are trying to install from macOS. Please use brew to install Aptos CLI instead - [brew install aptos]",
+                )
+            )
+            self._write("")
+            sys.exit(1)
+
+        if arch in ["arm64", "aarch64"]:
+            self._write(
+                colorize(
+                    "warning",
+                    "The given CPU architecture ({}) for Linux is in Beta, and only built for one version of Ubuntu-22.04.".format(arch),
+                )
+            )
+            self._write(
+                colorize(
+                    "info",
+                    "Using: Linux-aarch64",
+                )
+            )
+            return "Linux-aarch64"
+
+        # On Linux, determine the distribution and release
+        distro = "Unknown"
+        release = "Unknown"
+
+        # Try to get distribution info from /etc/os-release first
+        self._write(
+                colorize(
+                    "info",
+                    "Checking Linux distribution and version...",
+                )
+            )
+        try:
+            with open("/etc/os-release") as f:
+                os_release = {}
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith('#'):
+                        k, v = line.split('=', 1)
+                        os_release[k] = v.strip('"')
+
+                if 'ID' in os_release:
+                    distro = os_release['ID'].capitalize()
+                if 'VERSION_ID' in os_release:
+                    release = os_release['VERSION_ID']
+                self._write(
+                    colorize(
+                        "info",
+                        f"Linux distribution: {distro} Version: {release}",
+                    )
+                )
+        except Exception:
+            self._write(
+                colorize(
+                    "warning",
+                    "Could not determine Linux distribution and version, assuming Ubuntu 22.04",
+                )
+            )
+            distro = "Ubuntu"
+            release = "22.04"
+
+        # Determine which OpenSSL you have
+        self._write(
+                colorize(
+                    "info",
+                    "Checking OpenSSL version...",
+                )
+            )
+        try:
+            out = subprocess.check_output(
+                ["openssl", "version"],
+                universal_newlines=True,
+            )
+            openssl_version = out.split(" ")[1].rstrip().lstrip()
+            self._write(
+                colorize(
+                    "info",
+                    f"OpenSSL version: {openssl_version}",
+                )
+            )
+        except Exception:
+            self._write(
+                colorize(
+                    "warning",
+                    "Could not determine OpenSSL version, assuming version (3.x.x)",
+                )
+            )
+
+        # We unfortunately do not build for OpenSSL v1 anymore, so if you have v1, we will just stop here :(
+        if not openssl_version.startswith("3."):
+            self._write(
+                colorize(
+                    "warning",
+                    "The Aptos CLI is only supported with OpenSSL v3.0.0 or newer.  We will attempt to install the CLI, but please follow instructions to build manually or install the CLI using brew for OpenSSL v1.x.x.",
+                )
+            )
+            self._write(
+                colorize(
+                    "info",
+                    "Using: Ubuntu 22.04-x86_64",
+                )
+            )
+            return "Ubuntu-22.04-x86_64"
+
+        # Ubuntu 24.04 is built specifically for it, and may have some dependencies we don't count otherwise.
+        if distro.startswith("Ubuntu"):
+          if release.startswith("24.04"):
+            return "Ubuntu-24.04-x86_64"
+          # Ubuntu 22.04 is built specifically for it
+          elif release.startswith("22.04"):
+            return "Ubuntu-22.04-x86_64"
+          # In other cases, we use the generic version
+          elif release.startswith("20.04"):
+            self._write(
+              colorize(
+                  "warning",
+                  "The Aptos CLI is officially only built for Ubuntu >= 22.04.  We will try to install, but it may not work with your setup. Please follow the instructions to build manually if it does not work.",
+              )
+            )
+            return "Ubuntu-22.04-x86_64"
+        self._write(
+          colorize(
+              "warning",
+              "The Aptos CLI is officially only built for Ubuntu.  We will try to install, but it may not work with your setup. Please follow the instructions to build manually if it does not work.",
+          )
+        )
+        return "Linux-x86_64"
+
+    def _write(self, line) -> None:
+        sys.stdout.write(line + "\n")
+
+    @retry_network_operation()
+    def _get_json(self, url, expect_non_empty: bool = True):
+        """Download data from URL with retry logic."""
+        request = Request(url, headers={"User-Agent": "Aptos CLI Installer"})
+        
+        with closing(urlopen(request)) as r:
+            if r.getcode() != 200:
+                raise RuntimeError(f"HTTP request failed with status code {r.getcode()} for URL: {url}")
+            content = r.read().decode()
+        
+        out = json.loads(content)
+        if expect_non_empty and not out:
+            raise RuntimeError(f"Expected non-empty JSON response from URL: {url}")
+        return out
+
+    @retry_network_operation()
+    def _download_file(self, url, local_path):
+        """Download a file from URL to local path with retry logic."""
+        urlretrieve(url, local_path)
+
+    def _get_latest_cli_tag(self, repo_path: str) -> Optional[str]:
+        """Get the latest CLI tag from the cloned repository."""
+        try:
+            result = subprocess.run(
+                ["git", "tag", "-l", "aptos-cli-v*"],
+                cwd=repo_path,
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            tags = result.stdout.strip().split("\n")
+            tags = [t for t in tags if t]  # Filter empty strings
+            if not tags:
+                return None
+
+            # Sort tags by version using packaging.version.Version when available
+            # This handles pre-release versions (e.g., 1.2.3-rc1) correctly
+            if Version is not None:
+                versioned_tags = []
+                for tag in tags:
+                    version_str = tag.replace("aptos-cli-v", "", 1)
+                    try:
+                        version_obj = Version(version_str)
+                        versioned_tags.append((version_obj, tag))
+                    except Exception:
+                        # Skip tags that cannot be parsed as versions
+                        continue
+                if versioned_tags:
+                    versioned_tags.sort(key=lambda vt: vt[0])
+                    return versioned_tags[-1][1]
+
+            # Fallback to simplistic sorting if Version is unavailable or no parsable tags
+            tags.sort(
+                key=lambda x: [
+                    int(n) if n.isdigit() else n
+                    for n in x.replace("aptos-cli-v", "", 1).split(".")
+                ]
+            )
+            return tags[-1]
+        except subprocess.CalledProcessError:
+            return None
+
+    def install_from_source(self, version: Optional[str] = None) -> int:
+        """Install the Aptos CLI by building from source.
+        
+        Note: The minimal_cli_build.sh script handles installation of all required
+        dependencies (Rust, build tools, etc.), so we don't need to check for them here.
+        Git is required to clone the repository.
+        """
+        self._write(colorize("info", "Installing Aptos CLI from source..."))
+        self._write("")
+
+        self.bin_dir.mkdir(parents=True, exist_ok=True)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo_path = os.path.join(tmpdir, "aptos-core")
+
+            self._write(colorize("info", "Cloning aptos-core repository..."))
+
+            try:
+                if version:
+                    # Clone specific version with shallow depth
+                    self._write(colorize("info", f"Checking out version {version}..."))
+                    subprocess.run(
+                        ["git", "clone", "--depth", "1", "--branch", f"aptos-cli-v{version}", self.APTOS_REPO_URL, repo_path],
+                        check=True,
+                        capture_output=True,
+                        text=True,
+                    )
+                else:
+                    # Clone repository - we need full clone to ensure all tags are available
+                    # (shallow clones may miss tags if there have been many commits since the tag)
+                    subprocess.run(
+                        ["git", "clone", "--filter=blob:none", self.APTOS_REPO_URL, repo_path],
+                        check=True,
+                        capture_output=True,
+                        text=True,
+                    )
+
+                    # Find and checkout the latest CLI tag
+                    latest_tag = self._get_latest_cli_tag(repo_path)
+                    if not latest_tag:
+                        self._write(colorize("error", "Could not find any aptos-cli release tags"))
+                        return 1
+
+                    # Check if the latest version is already installed
+                    latest_version = latest_tag.replace("aptos-cli-v", "")
+                    if not self._force:
+                        try:
+                            out = subprocess.check_output(
+                                [self.bin_path, "--version"],
+                                universal_newlines=True,
+                            )
+                            current_version = out.split(" ")[-1].rstrip().lstrip()
+                            if current_version == latest_version:
+                                self._write(colorize("warning", f"Aptos CLI version {latest_version} is already installed."))
+                                return 0
+                        except (FileNotFoundError, PermissionError, subprocess.CalledProcessError, OSError):
+                            pass  # CLI not installed, proceed
+
+                    self._write(colorize("info", f"Checking out {latest_tag}..."))
+                    subprocess.run(
+                        ["git", "checkout", latest_tag],
+                        cwd=repo_path,
+                        check=True,
+                        capture_output=True,
+                        text=True,
+                    )
+                    version = latest_version
+
+            except FileNotFoundError:
+                self._write(colorize("error", "Git is not installed or not found in PATH."))
+                self._write(colorize("info", "Please install Git and try again: https://git-scm.com/downloads"))
+                return 1
+            except subprocess.CalledProcessError as e:
+                self._write(colorize("error", f"Failed to clone repository: {e.stderr if e.stderr else e}"))
+                return 1
+
+            self._write(colorize("info", "Building Aptos CLI (this may take several minutes)..."))
+            self._write("")
+
+            # Check if the build script exists before attempting to run it
+            build_script = os.path.join(repo_path, "scripts", "minimal_cli_build.sh")
+            if not os.path.exists(build_script):
+                self._write(colorize("error", f"Build script not found: {build_script}"))
+                self._write(colorize("info", "The aptos-core repository may be incomplete or the structure has changed."))
+                return 1
+
+            try:
+                # Build the CLI using the minimal build script
+                # Note: We intentionally don't capture output here so users can see build progress
+                subprocess.run(
+                    ["sh", build_script],
+                    cwd=repo_path,
+                    check=True,
+                )
+            except subprocess.CalledProcessError as e:
+                self._write(colorize("error", f"Failed to build Aptos CLI: {e}"))
+                return 1
+
+            # Determine the binary name and location
+            # Note: Windows is blocked in run_from_source(), so we only handle Unix here
+            source_binary = os.path.join(repo_path, "target", "release", "aptos")
+
+            if not os.path.exists(source_binary):
+                self._write(colorize("error", "Build succeeded but could not find the aptos binary"))
+                return 1
+
+            # Move the binary to the bin directory
+            dest_binary = self.bin_path
+            try:
+                if dest_binary.exists():
+                    dest_binary.unlink()
+                shutil.copy2(source_binary, dest_binary)
+                os.chmod(dest_binary, 0o755)
+            except OSError as e:
+                self._write(colorize("error", f"Failed to install Aptos CLI binary to {dest_binary}: {e}"))
+                self._write(colorize("info", "Please ensure you have write permissions to this directory and sufficient disk space."))
+                return 1
+
+            self._write("")
+            self._write(colorize("success", f"Aptos CLI version {version} installed successfully from source!"))
+
+        self._write("")
+        self.display_post_message(version)
+        return 0
+
+    def _validate_version_string(self, version: str) -> bool:
+        """Validate that version string only contains safe characters."""
+        # Allow digits, dots, hyphens, and alphanumeric characters for version strings
+        # e.g., "1.2.3", "1.2.3-rc1", "1.2.3-beta.1"
+        return bool(re.match(r'^[a-zA-Z0-9.\-]+$', version))
+
+    def run_from_source(self) -> int:
+        """Run installation from source."""
+        # Building from source is not supported on Windows
+        if WINDOWS:
+            self._write(colorize("error", "Building from source is not supported on Windows."))
+            self._write(colorize("info", "Please use the pre-built binary installation instead (remove --from-source flag)."))
+            return 1
+
+        version = self._version
+
+        # Validate version string if provided
+        if version and not self._validate_version_string(version):
+            self._write(colorize("error", f"Invalid version string: {version}"))
+            self._write(colorize("info", "Version should only contain alphanumeric characters, dots, and hyphens."))
+            return 1
+
+        # Check if CLI is already installed with the requested version
+        if not self._force and version:
+            try:
+                out = subprocess.check_output(
+                    [self.bin_path, "--version"],
+                    universal_newlines=True,
+                )
+                current_version = out.split(" ")[-1].rstrip().lstrip()
+
+                if current_version == version:
+                    self._write(colorize("warning", f"Aptos CLI version {version} is already installed."))
+                    return 0
+            except (FileNotFoundError, PermissionError, subprocess.CalledProcessError, OSError):
+                # CLI not installed or not runnable, proceed with installation
+                pass
+
+        return self.install_from_source(version)
+
+
+def main():
+    if sys.version_info.major < 3 or sys.version_info.minor < 6:
+        sys.stdout.write(
+            colorize("error", "This installer requires Python 3.6 or newer to run!")
+        )
+        # Return error code.
+        return 1
+
+    parser = argparse.ArgumentParser(
+        description="Installs the latest version of the Aptos CLI"
+    )
+    parser.add_argument(
+        "-f",
+        "--force",
+        help="Forcibly install on top of existing version",
+        action="store_true",
+        default=False,
+    )
+    parser.add_argument(
+        "-y",
+        "--yes",
+        help="Accept all prompts",
+        dest="accept_all",
+        action="store_true",
+        default=False,
+    )
+    parser.add_argument(
+        "--bin-dir",
+        help="If given, the CLI binary will be downloaded here instead",
+    )
+    parser.add_argument(
+        "--cli-version",
+        help="If given, the CLI version to install",
+    )
+    parser.add_argument(
+        "--from-source",
+        help="Build and install from source instead of downloading pre-built binary",
+        action="store_true",
+        default=False,
+    )
+
+    args = parser.parse_args()
+
+    installer = Installer(
+        force=args.force,
+        accept_all=args.accept_all or not is_interactive(),
+        bin_dir=args.bin_dir,
+        version=args.cli_version,
+        from_source=args.from_source,
+    )
+
+    try:
+        return installer.run()
+    except InstallationError as e:
+        installer._write(colorize("error", "Aptos CLI installation failed."))
+
+        if e.log is not None:
+            import traceback
+
+            _, path = tempfile.mkstemp(
+                suffix=".log",
+                prefix="aptos-cli-installer-error-",
+                dir=str(Path.cwd()),
+                text=True,
+            )
+            installer._write(colorize("error", f"See {path} for error logs."))
+            text = f"{e.log}\nTraceback:\n\n{''.join(traceback.format_tb(e.__traceback__))}"
+            Path(path).write_text(text)
+
+        return e.return_code
+
+
+if __name__ == "__main__":
+    sys.exit(main())
