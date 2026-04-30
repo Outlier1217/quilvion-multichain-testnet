@@ -70,3 +70,35 @@ Built by Mustak Aalam 🚀
 ⭐ Support
 
 If you like this project, give it a ⭐ on GitHub!
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[package]
+name = "quilvion"
+version = "1.0.0"
+edition = "2024.beta"
+
+[dependencies]
+Sui = { override = true, git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "testnet-v1.40.1" }
+MoveStdlib = { override = true, git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/move-stdlib", rev = "testnet-v1.40.1" }
+usdc = { git = "https://github.com/circlefin/stablecoin-sui.git", subdir = "packages/usdc", rev = "master" }
+
+[addresses]
+quilvion = "0x0"
+
+[dev-addresses]
+quilvion = "0x0"
