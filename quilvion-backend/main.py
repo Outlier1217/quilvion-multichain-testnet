@@ -1,7 +1,10 @@
 """
 Quilvion Backend — FastAPI
-ML (XGBoost fraud detection) + LLM (Claude) integrated
+ML (XGBoost fraud detection) + LLM (Groq) integrated
 """
+
+from dotenv import load_dotenv
+load_dotenv()
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -23,7 +26,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Quilvion AI Backend",
-    description="ML fraud detection + Claude LLM for Quilvion multichain commerce",
+    description="ML fraud detection + Groq LLM for Quilvion multichain commerce",
     version="1.0.0",
     lifespan=lifespan,
 )
@@ -39,7 +42,7 @@ app.add_middleware(
 
 # Routes
 app.include_router(risk.router,     prefix="/api/risk",     tags=["Risk & ML"])
-app.include_router(llm.router,      prefix="/api/llm",      tags=["LLM (Claude)"])
+app.include_router(llm.router,      prefix="/api/llm",      tags=["LLM"])
 app.include_router(merchant.router, prefix="/api/merchant",  tags=["Merchant"])
 app.include_router(dispute.router,  prefix="/api/dispute",   tags=["Dispute"])
 app.include_router(buyer.router,    prefix="/api/buyer",     tags=["Buyer"])
@@ -51,16 +54,16 @@ def root():
         "service": "Quilvion AI Backend",
         "status": "running",
         "endpoints": {
-            "risk_score":           "POST /api/risk/score",
-            "fraud_explanation":    "POST /api/llm/fraud-explanation",
-            "product_description":  "POST /api/llm/product-description",
-            "dispute_summary":      "POST /api/llm/dispute-summary",
-            "merchant_profile":     "POST /api/llm/merchant-profile",
-            "xp_message":           "POST /api/llm/xp-message",
-            "buyer_chat":           "POST /api/llm/buyer-chat",
-            "merchant_generate":    "POST /api/merchant/generate-description",
-            "dispute_raise":        "POST /api/dispute/raise",
-            "buyer_assistant":      "POST /api/buyer/ask",
+            "risk_score":          "POST /api/risk/score",
+            "fraud_explanation":   "POST /api/llm/fraud-explanation",
+            "product_description": "POST /api/llm/product-description",
+            "dispute_summary":     "POST /api/llm/dispute-summary",
+            "merchant_profile":    "POST /api/llm/merchant-profile",
+            "xp_message":          "POST /api/llm/xp-message",
+            "buyer_chat":          "POST /api/llm/buyer-chat",
+            "merchant_generate":   "POST /api/merchant/generate-description",
+            "dispute_raise":       "POST /api/dispute/raise",
+            "buyer_assistant":     "POST /api/buyer/ask",
         }
     }
 
