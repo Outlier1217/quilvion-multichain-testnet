@@ -8,4 +8,4 @@ pandas==2.2.3
 numpy==2.1.1
 joblib==1.4.2
 python-dotenv==1.0.1
-httpx==0.27.2
+httpx==0.27.2groq==0.11.0

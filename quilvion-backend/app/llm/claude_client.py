@@ -1,42 +1,46 @@
 """
-Claude API client — all LLM calls go through here
-Uses claude-sonnet-4-20250514 (latest Sonnet)
+LLM client — Groq API (llama-3.3-70b-versatile)
+Drop-in replacement for Claude — same interface, free tier available.
 """
 
-import anthropic
+from groq import Groq
 import os
 from typing import Optional
 
-_client: Optional[anthropic.Anthropic] = None
+_client: Optional[Groq] = None
 
 
-def get_client() -> anthropic.Anthropic:
+def get_client() -> Groq:
     global _client
     if _client is None:
-        api_key = os.getenv("ANTHROPIC_API_KEY")
+        api_key = os.getenv("GROQ_API_KEY")
         if not api_key:
-            raise ValueError("ANTHROPIC_API_KEY environment variable not set")
-        _client = anthropic.Anthropic(api_key=api_key)
+            raise ValueError("GROQ_API_KEY environment variable not set")
+        _client = Groq(api_key=api_key)
     return _client
 
 
-MODEL = "claude-sonnet-4-20250514"
+MODEL = "llama-3.3-70b-versatile"
 MAX_TOKENS = 1024
 
 
 def call_claude(system_prompt: str, user_message: str) -> str:
-    """Single Claude API call — returns text response."""
+    """Single Groq API call — returns text response.
+    Function name kept as call_claude so no other file needs changes.
+    """
     client = get_client()
-    response = client.messages.create(
+    response = client.chat.completions.create(
         model=MODEL,
         max_tokens=MAX_TOKENS,
-        system=system_prompt,
-        messages=[{"role": "user", "content": user_message}],
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user",   "content": user_message},
+        ],
     )
-    return response.content[0].text
+    return response.choices[0].message.content
 
 
-# ── Prompt templates ──────────────────────────────────────────────────────────
+# ── System prompts (same as before) ──────────────────────────────────────────
 
 SYSTEM_FRAUD_EXPLAINER = """You are a fraud analyst for Quilvion, a Web3 commerce platform.
 Your job is to explain fraud risk scores in clear, human-readable language for admins and users.
