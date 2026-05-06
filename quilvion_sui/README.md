@@ -2,7 +2,9 @@
 
 **Network:** Sui Blockchain (Move 2024)  
 **Token:** USDC (6 decimals — 1 USDC = 1,000,000 micro-units)  
-**Status:** 100% test-passing on Sui localnet
+**Status:** Deployed on Sui Testnet ✅  
+**Deploy Tx:** `7baUq6X3g3w1vgB4mEDY13TghjUf2euJEMGZAfeeD7Dc`  
+**Explorer:** https://suiscan.xyz/testnet/tx/7baUq6X3g3w1vgB4mEDY13TghjUf2euJEMGZAfeeD7Dc
 
 ---
 
@@ -159,23 +161,10 @@ Holds the actual USDC funds for every order. Each order gets an `EscrowRecord` k
 
 ```
 lock_funds(escrow_manager, order_id, merchant, buyer, Coin<USDC>, clock, ctx)
-```
-Deposits the full coin into an `EscrowRecord`. The coin must be split to the exact order amount on the frontend before calling.
-
-```
 release_funds_with_fee(escrow_manager, order_id, fee_bps, ctx): (u64, u64)
-```
-Calculates fee = `total * fee_bps / 10000`, sends fee to treasury, sends remainder to merchant. Returns `(merchant_amount, fee_amount)`.
-
-```
 refund_funds(escrow_manager, order_id, ctx)
-```
-Returns the full escrowed amount to the buyer. No fee is charged.
-
-```
 release_funds(escrow_manager, order_id, ctx): u64
 ```
-Sends full amount to merchant with no fee (legacy / dispute path).
 
 **Treasury**
 
@@ -183,17 +172,14 @@ Sends full amount to merchant with no fee (legacy / dispute path).
 withdraw_treasury(escrow_manager, amount, recipient, role_manager, ctx)
 treasury_balance(escrow_manager): u64
 ```
-Only `ADMIN` or `DEFAULT_ADMIN` may withdraw. Amount is in USDC micro-units.
 
 **Daily Spend Tracking**
 
 ```
 track_daily_spend(escrow_manager, wallet, amount, config, clock)
 get_daily_spent(escrow_manager, wallet, clock): u64
-reset_daily_spend(escrow_manager, wallet, role_manager, ctx)    // admin only
+reset_daily_spend(escrow_manager, wallet, role_manager, ctx)
 ```
-
-The tracker resets automatically at UTC midnight. If the wallet's cumulative spend for the day plus the new order amount exceeds `daily_spend_limit`, the transaction aborts with `EDailyLimitExceeded`.
 
 ---
 
@@ -216,69 +202,21 @@ The primary entry-point module. Orchestrates orders by calling into `escrow_logi
 
 **Entry Functions**
 
-#### `create_order`
-
-```move
-public fun create_order(
-    core, escrow_manager, config, rep_manager, role_manager,
-    product_id: u64,
-    merchant_wallet: address,
-    product_type: u8,
-    payment: Coin<USDC>,
-    clock, ctx
-)
 ```
-
-- Checks and records daily USDC spend for the buyer
-- Locks `payment` in escrow
-- Marks the order's `is_verified_merchant` flag based on the merchant's current `MERCHANT_ROLE`
-- **Auto-complete:** if `product_type == 0` (digital) **and** `amount < admin_approval_threshold`, the order is immediately completed in the same call, XP is awarded, and fees are deducted
-
-#### `release_escrow`
-
-Admin-only. Force-releases funds to merchant with fee deduction. Status moves to `ESCROW_RELEASED`. Requires `ADMIN_ROLE`.
-
-#### `cancel_order`
-
-Callable by the buyer or any admin. Refunds full USDC to buyer with no fee. Only valid when status is `PENDING`.
-
-#### `deliver_digital_product`
-
-```move
-public fun deliver_digital_product(
-    core, role_manager,
-    order_id: u64,
-    content_hash: vector<u8>,
-    ctx
-)
+create_order(core, escrow_manager, config, rep_manager, role_manager, product_id, merchant_wallet, product_type, Coin<USDC>, clock, ctx)
+release_escrow(core, escrow_manager, rep_manager, config, role_manager, order_id, clock, ctx)
+cancel_order(core, escrow_manager, role_manager, order_id, ctx)
+deliver_digital_product(core, role_manager, order_id, content_hash, ctx)
+raise_dispute(core, config, order_id, clock, ctx)
+resolve_dispute(core, escrow_manager, rep_manager, config, role_manager, order_id, favor_buyer, clock, ctx)
+set_risk_score(core, role_manager, order_id, score, ctx)
 ```
-
-Requires `MERCHANT_ROLE` and the caller must be the order's merchant. Records an IPFS or other content hash on-chain in the order struct.
-
-#### `raise_dispute`
-
-Callable only by the buyer. Order must be `PENDING` and not yet disputed. The elapsed time since `created_at` must be within `refund_window_seconds`. Moves status to `DISPUTED`.
-
-#### `resolve_dispute`
-
-Admin-only.
-
-- `favor_buyer = true` → status `REFUNDED`, full USDC returned to buyer, merchant score penalized
-- `favor_buyer = false` → status `ESCROW_RELEASED`, USDC minus fee sent to merchant, buyer earns XP
-
-#### `set_risk_score`
-
-```move
-public fun set_risk_score(core, role_manager, order_id: u64, score: u8, ctx)
-```
-
-Requires `BOT_ROLE`. Score must be 0–100. Stored on the order and emitted as an event.
 
 **View Functions**
 
 ```
 get_order_risk_score(core, order_id): u8
-get_order_fee(core, order_id): u64         // USDC fee charged (0 if pending)
+get_order_fee(core, order_id): u64
 get_order_status(core, order_id): u8
 ```
 
@@ -286,11 +224,9 @@ get_order_status(core, order_id): u8
 
 ### `reputation_manager`
 
-Tracks buyer XP/tiers and merchant quality scores. Two shared objects are created at init: `ReputationManager` and `BadgeManager`.
+Tracks buyer XP/tiers and merchant quality scores.
 
-**Buyer Reputation**
-
-Each completed (or admin-released) order awards `10 XP` to the buyer.
+**Buyer Tiers**
 
 | XP Threshold | Tier |
 |---|---|
@@ -298,25 +234,12 @@ Each completed (or admin-released) order awards `10 XP` to the buyer.
 | 100 – 499 | Silver |
 | 500+ | Gold |
 
-A `TierUpgraded` event is emitted whenever a buyer crosses a threshold.
-
-**Merchant Reputation**
-
-Merchants start at score 100.
+**Merchant Score**
 
 | Event | Score Delta |
 |---|---|
 | Order settled without dispute | +5 (capped at 100) |
 | Dispute resolved against merchant | −20 (floored at 0) |
-
-**Badges**
-
-```
-mint_tier_badge(badge_manager, wallet, tier: u8, ctx)
-has_badge(badge_manager, wallet, tier: u8): bool
-```
-
-Tier values: `0 = Bronze`, `1 = Silver`, `2 = Gold`. Badges are idempotent — minting a badge a wallet already holds is a no-op.
 
 **View Functions**
 
@@ -331,12 +254,10 @@ get_merchant_order_count(rep_manager, wallet): u64
 
 ### `events`
 
-Thin wrapper around `sui::event::emit`. All structs have `copy, drop`.
-
 | Event | Fields | Emitted When |
 |---|---|---|
 | `OrderCreated` | order_id, buyer, merchant, amount | Order is created |
-| `OrderCompleted` | order_id | Order settles (auto or manual) |
+| `OrderCompleted` | order_id | Order settles |
 | `OrderDisputed` | order_id, buyer | Buyer raises dispute |
 | `DisputeResolved` | order_id, favor_buyer | Admin resolves dispute |
 | `RiskScoreSet` | order_id, score | BOT sets fraud score |
@@ -348,11 +269,7 @@ Thin wrapper around `sui::event::emit`. All structs have `copy, drop`.
 
 ### `mock_usdc`
 
-Fake USDC for local development only. Mimics Circle's USDC interface (module name `usdc`, struct name `USDC`, 6 decimals). Do **not** deploy to testnet or mainnet.
-
-```move
-public fun mint(cap: &mut TreasuryCap<USDC>, amount: u64, recipient: address, ctx)
-```
+Fake USDC for local development only. Mimics Circle's USDC interface (module `usdc`, struct `USDC`, 6 decimals). Do **not** use on mainnet.
 
 ---
 
@@ -362,34 +279,26 @@ public fun mint(cap: &mut TreasuryCap<USDC>, amount: u64, recipient: address, ct
 create_order()
      │
      ├─ [digital + amount < threshold] ──► auto complete_order()
-     │                                           │
-     │                                    fee deducted, merchant paid,
-     │                                    buyer earns XP, status = COMPLETED
+     │                                     fee deducted, XP awarded, COMPLETED
      │
-     └─ [all other cases] ────────────────► status = PENDING
-                                                   │
-                  ┌────────────────────────────────┼────────────────────────┐
-                  ▼                                ▼                        ▼
-           cancel_order()                   raise_dispute()         release_escrow()
-           (buyer or admin)                 (buyer, within window)  (admin)
-                  │                                │                        │
-           full refund to buyer            status = DISPUTED         fee deducted,
-           status = CANCELLED                      │                 merchant paid,
-                                      resolve_dispute()             status = ESCROW_RELEASED
-                                         (admin)
-                                     ┌───────┴──────────┐
-                                     ▼                  ▼
-                               favor_buyer=true   favor_buyer=false
-                               full refund        merchant paid
-                               status = REFUNDED  fee deducted
-                                                  status = ESCROW_RELEASED
+     └─ [all other cases] ────────────────► PENDING
+                                               │
+              ┌────────────────────────────────┼──────────────────────┐
+              ▼                                ▼                      ▼
+       cancel_order()                   raise_dispute()       release_escrow()
+       full refund, CANCELLED           DISPUTED              fee deducted, ESCROW_RELEASED
+                                               │
+                                     resolve_dispute()
+                                    ┌──────────┴──────────┐
+                                    ▼                     ▼
+                              favor_buyer=true      favor_buyer=false
+                              full refund           merchant paid - fee
+                              REFUNDED              ESCROW_RELEASED
 ```
 
 ---
 
 ## Role System
-
-All privileged operations gate on roles stored in `RoleManager`. The deployer wallet automatically receives `DEFAULT_ADMIN_ROLE` at init.
 
 | Operation | Required Role |
 |---|---|
@@ -398,9 +307,8 @@ All privileged operations gate on roles stored in `RoleManager`. The deployer wa
 | Release escrow | ADMIN or DEFAULT_ADMIN |
 | Resolve disputes | ADMIN or DEFAULT_ADMIN |
 | Withdraw treasury | ADMIN or DEFAULT_ADMIN |
-| Reset daily spend | ADMIN or DEFAULT_ADMIN |
 | Set risk score on order | BOT |
-| Deliver digital product | MERCHANT (and must match order.merchant) |
+| Deliver digital product | MERCHANT (must match order.merchant) |
 | Cancel order | Buyer or ADMIN/DEFAULT_ADMIN |
 | Raise dispute | Buyer only |
 | Create order | Any wallet |
@@ -415,38 +323,29 @@ merchant_payout = total_payment - fee_amount
 ```
 
 **Example** — 150 USDC order at 2.5% fee:
-
 ```
 fee_amount      = 150,000,000 * 250 / 10,000 = 3,750,000  (3.75 USDC)
 merchant_payout = 150,000,000 - 3,750,000   = 146,250,000 (146.25 USDC)
 ```
 
-Fees accumulate in `EscrowManager.treasury` and are withdrawable any time by an admin. No fee is charged on cancellations or buyer-favored dispute refunds.
+No fee is charged on cancellations or buyer-favored dispute refunds.
 
 ---
 
 ## Dispute Resolution
 
-1. **Buyer calls `raise_dispute`** — only valid if the order is `PENDING`, not already disputed, and the current time is within `refund_window_seconds` of `created_at`.
+1. **Buyer calls `raise_dispute`** — valid only if `PENDING`, not already disputed, and within `refund_window_seconds`
 2. **Admin calls `resolve_dispute`** with `favor_buyer: bool`:
-   - `true` — full USDC returned to buyer; merchant score −20; status = `REFUNDED`
-   - `false` — USDC minus platform fee sent to merchant; fee goes to treasury; buyer earns XP; merchant score +5; status = `ESCROW_RELEASED`
+   - `true` → full refund to buyer; merchant score −20; status = `REFUNDED`
+   - `false` → merchant paid minus fee; buyer earns XP; merchant score +5; status = `ESCROW_RELEASED`
 
 ---
 
 ## Reputation & Badges
 
-**Buyer XP Flow**
+Every completed order awards 10 XP to the buyer. Tier is recalculated after each award.
 
-Every `complete_order`, `release_escrow` (non-disputed), or `resolve_dispute` (favor_buyer=false) calls `award_xp`, adding 10 XP to the buyer's record. The tier is recalculated after each XP award.
-
-**Merchant Score Flow**
-
-Every settlement calls `update_merchant_score`. Passing `dispute_raised=true` decreases score by 20; `dispute_raised=false` increases by 5.
-
-**Badge Minting**
-
-Badges are separate from the reputation score and must be minted explicitly (e.g., by a backend service) using `mint_tier_badge`. The call is idempotent — a wallet already holding a badge tier will not receive a duplicate.
+Badge minting via `mint_tier_badge` is idempotent — a wallet already holding a tier badge will not receive a duplicate.
 
 ---
 
@@ -460,53 +359,52 @@ Badges are separate from the reputation score and must be minted explicitly (e.g
 | `refund_window_seconds` | 604,800 | Seconds (7 days) |
 | `verification_expiry_seconds` | 31,536,000 | Seconds (1 year) |
 
-All of the above can be changed at runtime by any address holding `ADMIN_ROLE`.
-
 ---
 
 ## Shared Object Addresses
 
-These are the deployed addresses on the localnet used during final testing.
+### Sui Testnet (Active) ✅
 
 | Object | Address |
 |---|---|
-| Package | `0x71cb5a24...55d3d` |
-| CommerceCore | `0x618f8390...3cc1` |
-| EscrowManager | `0x825cfd97...842a` |
-| ConfigManager | `0xb8311b66...630f` |
-| RoleManager | `0xda833ef1...70fc` |
-| ReputationManager | `0x787c7e67...b040` |
-| BadgeManager | `0x66e46d53...1435` |
-| TreasuryCap (mock USDC) | `0xaebad5a6...3a23` |
+| **Package** | `0x08d8ad38d8f4c3f5c2418f2d3d6074b6c01ad5e4be24d0087e55669b22db63c8` |
+| **CommerceCore** | `0x9e0912ec621c42ba0dd5845829ae2780cd08acb185a60ef100a7f7b9857866ac` |
+| **EscrowManager** | `0x8d84f92239f429f7ab4b1fc15c86c8831f024fc572e7226385c67a23d51b54d7` |
+| **ConfigManager** | `0xb75738cce91d139ed6f2f5410b285948524e0abc029343fe606e4e03e8c34155` |
+| **RoleManager** | `0x8d3937e563e21314cff23286fa3849bce952c3a4744b0669222765ff4643f30a` |
+| **ReputationManager** | `0x1b4e4788e188f670d2ac7a0c524d2ea8f5a0cec72b44bb4ab678732ea66ce22b` |
+| **BadgeManager** | `0x1c69c03d026dcb155b29550c6c916494d7786b3d1b5ce723ed2a6a1b74e89eae` |
+| **TreasuryCap (mock USDC)** | `0x15e7d6512072b3e04a99308a6189d2a2abcc53a5318f73c2514a59f9d970e629` |
+| **Deploy Tx** | `7baUq6X3g3w1vgB4mEDY13TghjUf2euJEMGZAfeeD7Dc` |
 
-> **Note:** These addresses are localnet-specific. After any new deployment, update all object IDs before running scripts.
+> View on Sui Explorer: https://suiscan.xyz/testnet/object/0x08d8ad38d8f4c3f5c2418f2d3d6074b6c01ad5e4be24d0087e55669b22db63c8
+
+### Sui Localnet (Testing History)
+
+| Object | Address |
+|---|---|
+| Package | `0x71cb5a24592aa9f73c8833773357b5f4c367526d11e5ff8e67e0865dd4055d3d` |
+| CommerceCore | `0x618f8390607769e10b7adb0eed821cb65bd6196c30b732ada5125f0e30ca3cc1` |
+| EscrowManager | `0x825cfd97894b735da0945989945c63a9df5e2aec82da756920aa3cec3ea0842a` |
 
 ---
 
 ## Test Coverage
 
-The final test suite (`test_final.sh`) executes 20 transactions across 8 groups, all passing on localnet.
+The final test suite (`test_final.sh`) executes 21 transactions across 8 groups, all passing on localnet.
 
-| Group | Scenario | Orders | Expected Outcome |
-|---|---|---|---|
-| 1 | Config Manager | — | Set fee, threshold, spend limit, refund window |
-| 2 | Escrow + Admin Release | Order N | 150 USDC locked → risk scored (20) → admin release, 3.75 USDC fee |
-| 3 | Dispute → Buyer Wins | Order N+1 | 120 USDC locked → dispute raised → full refund to buyer |
-| 4 | Dispute → Merchant Wins | Order N+2 | 110 USDC locked → dispute raised → merchant paid, 2.75 USDC fee |
-| 5 | Cancel Order | Order N+3 | 130 USDC locked → cancelled → full refund to buyer, no fee |
-| 6 | Digital Delivery | Order N+4 | 200 USDC locked → IPFS hash stored on-chain |
-| 7 | Treasury Withdraw | — | Admin withdraws 6 USDC from accumulated fees |
-| 8 | Reputation & Badges | — | Bronze, Silver, Gold badges minted (idempotent) |
+| Group | Scenario | Result |
+|---|---|---|
+| 1 | Config Manager — set fee, threshold, spend limit, refund window | ✅ |
+| 2 | Escrow + Admin Release — 150 USDC → risk scored (20) → admin release, 3.75 USDC fee | ✅ |
+| 3 | Dispute → Buyer Wins — 120 USDC → dispute → full refund | ✅ |
+| 4 | Dispute → Merchant Wins — 110 USDC → dispute → merchant paid, 2.75 USDC fee | ✅ |
+| 5 | Cancel Order — 130 USDC → cancelled → full refund, no fee | ✅ |
+| 6 | Digital Delivery — 200 USDC → IPFS hash stored on-chain | ✅ |
+| 7 | Treasury Withdraw — admin withdraws 6 USDC accumulated fees | ✅ |
+| 8 | Reputation & Badges — Bronze, Silver, Gold badges minted | ✅ |
 
-**USDC flows verified:**
-
-```
-Order N   : 150 USDC → escrow → risk scored → admin release (fee 3.75 USDC)
-Order N+1 : 120 USDC → escrow → dispute     → buyer refund  (0 fee)
-Order N+2 : 110 USDC → escrow → dispute     → merchant wins (fee 2.75 USDC)
-Order N+3 : 130 USDC → escrow → cancelled   → full refund   (0 fee)
-Order N+4 : 200 USDC → escrow → digital content hash stored on-chain
-```
+**Result: 21/21 PASSED**
 
 ---
 
@@ -518,7 +416,7 @@ Order N+4 : 200 USDC → escrow → digital content hash stored on-chain
 |---|---|---|
 | 1 | `ENotMerchant` | Caller is not the order's merchant |
 | 2 | `ENotBuyer` | Caller is not the order's buyer |
-| 3 | `EOrderNotFound` | order_id does not exist in the table |
+| 3 | `EOrderNotFound` | order_id does not exist |
 | 4 | `EInvalidStatus` | Order status does not allow this operation |
 | 5 | `EDisputeTooLate` | Refund window has expired |
 | 6 | `EAlreadyDisputed` | Order already has a dispute |
@@ -530,11 +428,11 @@ Order N+4 : 200 USDC → escrow → digital content hash stored on-chain
 | Code | Constant | Condition |
 |---|---|---|
 | 1 | `EOrderNotFound` | Escrow record not found |
-| 2 | `EOrderAlreadyReleased` | Funds already released or unlocked |
-| 4 | `EDailyLimitExceeded` | Wallet daily USDC spend would exceed limit |
+| 2 | `EOrderAlreadyReleased` | Funds already released |
+| 4 | `EDailyLimitExceeded` | Daily USDC spend limit exceeded |
 | 5 | `EInvalidAmount` | Payment amount is zero |
 | 6 | `ENotAuthorized` | Caller lacks ADMIN role |
-| 7 | `EInsufficientTreasury` | Treasury balance less than requested withdrawal |
+| 7 | `EInsufficientTreasury` | Treasury balance less than requested |
 
 ### `access_control`
 
@@ -557,25 +455,27 @@ Order N+4 : 200 USDC → escrow → digital content hash stored on-chain
 
 ### Frontend — Placing an Order
 
-1. Query `ConfigManager` to read `admin_approval_threshold` and `daily_spend_limit`
-2. Check the buyer's current daily spend via `get_daily_spent`
-3. Split the buyer's USDC coin to the exact order amount:
-   ```
-   coin::split(&mut usdc_coin, order_amount, ctx)
-   ```
-4. Call `commerce_core::create_order` with all shared objects + the split coin
+```typescript
+// 1. Split USDC coin to exact order amount
+const [coin] = txb.splitCoins(txb.object(usdcCoinId), [txb.pure(orderAmountMicro)]);
 
-### Frontend — Checking Order State
-
+// 2. Call create_order
+txb.moveCall({
+  target: `${PACKAGE_ID}::commerce_core::create_order`,
+  arguments: [
+    txb.object(COMMERCE_CORE),
+    txb.object(ESCROW_MANAGER),
+    txb.object(CONFIG_MANAGER),
+    txb.object(REP_MANAGER),
+    txb.object(ROLE_MANAGER),
+    txb.pure(productId),
+    txb.pure(merchantWallet),
+    txb.pure(0), // PRODUCT_TYPE_DIGITAL
+    coin,
+    txb.object(CLOCK),
+  ],
+});
 ```
-get_order_status(core, order_id): u8
-get_order_fee(core, order_id): u64
-get_order_risk_score(core, order_id): u8
-```
-
-### Backend Bot — Writing Risk Scores
-
-Grant `BOT_ROLE` to the bot's wallet. Call `set_risk_score` after order creation to record the fraud score on-chain. Score range: 0 (clean) to 100 (high risk).
 
 ### Admin — Releasing Escrow
 
@@ -596,7 +496,7 @@ sui client call \
   --gas-budget 10000000
 ```
 
-### USDC Micro-Unit Quick Reference
+### USDC Micro-Unit Reference
 
 | USDC | Micro-units |
 |---|---|
@@ -608,4 +508,4 @@ sui client call \
 
 ---
 
-*Quilvion Protocol — built on Sui Move 2024*
+*Quilvion Protocol — built on Sui Move 2024 · Testnet deployed ✅*
