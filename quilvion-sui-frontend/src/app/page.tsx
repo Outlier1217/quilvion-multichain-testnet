@@ -17,6 +17,7 @@ import { BuyerChat } from '@/components/BuyerChat';
 import { OrderCard } from '@/components/OrderCard';
 import { RiskBadge } from '@/components/RiskBadge';
 import { BuyModal } from '@/components/BuyModal';
+import { MintUsdc } from '@/components/MintUsdc';
 
 // ── Dummy orders (replace with DB) ────────────────────────────────────────────
 const DUMMY_ORDERS = [
@@ -429,6 +430,31 @@ export default function BuyerDashboard() {
           />
         )}
       </AnimatePresence>
+
+      {/* ── TESTNET FOOTER ── */}
+      {account && (
+        <footer className="fixed bottom-0 left-0 right-0 z-30 border-t border-white/5 backdrop-blur-xl"
+          style={{ background: 'rgba(5,5,15,0.9)' }}>
+          <div className="max-w-7xl mx-auto px-6 py-2.5 flex items-center justify-between gap-4">
+            <div className="flex items-center gap-2">
+              <span className="flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-semibold"
+                style={{ background: 'rgba(245,158,11,0.12)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.2)' }}>
+                <span className="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse" />
+                Sui Testnet
+              </span>
+              <span className="text-xs text-white/20 hidden sm:block">
+                Package: {SUI_CONFIG.PACKAGE_ID.slice(0, 10)}...
+              </span>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-white/25 hidden sm:block">Need test USDC?</span>
+              <MintUsdc />
+            </div>
+          </div>
+        </footer>
+      )}
+
+      {account && <div className="h-14" />}
     </div>
   );
 }
