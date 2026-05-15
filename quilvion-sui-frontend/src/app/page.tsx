@@ -4,27 +4,62 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ConnectButton, useCurrentAccount, useSignAndExecuteTransaction } from '@mysten/dapp-kit';
 import { Transaction } from '@mysten/sui/transactions';
-import { 
-  ShoppingBag, Search, Filter, Star, Shield, Zap,
-  TrendingUp, ChevronRight, X, AlertTriangle, CheckCircle,
-  Clock, MessageSquare, Package, Award
+import {
+  ShoppingBag, Search, Star, Shield, Zap,
+  X, AlertTriangle, CheckCircle,
+  MessageSquare, Package
 } from 'lucide-react';
 import { PRODUCTS, CATEGORIES, type Product } from '@/lib/products';
-import { getRiskScore, getFraudExplanation, buyerChat } from '@/lib/api';
-import { buildCreateOrder, buildRaiseDispute, buildCancelOrder } from '@/lib/sui/transactions';
-import { fromUsdc, SUI_CONFIG } from '@/lib/sui/constants';
+import { getRiskScore, getFraudExplanation, buyerChat, fetchProducts } from '@/lib/api';
+import { buildCreateOrder, buildRaiseDispute } from '@/lib/sui/transactions';
+import { SUI_CONFIG } from '@/lib/sui/constants';
 import { BuyerChat } from '@/components/BuyerChat';
 import { OrderCard } from '@/components/OrderCard';
-import { RiskBadge } from '@/components/RiskBadge';
 import { BuyModal } from '@/components/BuyModal';
 import { MintUsdc } from '@/components/MintUsdc';
 
-// ── Dummy orders (replace with DB) ────────────────────────────────────────────
 const DUMMY_ORDERS = [
   { id: 15, productName: "Web3 Dev Bootcamp", amountUsdc: 89, status: "COMPLETED", createdAt: "2025-05-01" },
   { id: 16, productName: "DeFi Dashboard Template", amountUsdc: 149, status: "PENDING", createdAt: "2025-05-03" },
 ];
 
+// ── Image Gallery Component ────────────────────────────────────────────────────
+function ImageGallery({ images, name }: { images: string[]; name: string }) {
+  const [activeIndex, setActiveIndex] = useState(0);
+  return (
+    <div className="space-y-2">
+      <div className="w-full h-52 rounded-2xl overflow-hidden"
+        style={{ background: 'rgba(255,255,255,0.04)' }}>
+        <img
+          src={images[activeIndex]}
+          alt={`${name} - view ${activeIndex + 1}`}
+          className="w-full h-full object-cover transition-all duration-300"
+        />
+      </div>
+      {images.length > 1 && (
+        <div className="flex gap-2">
+          {images.map((img, i) => (
+            <button
+              key={i}
+              onClick={() => setActiveIndex(i)}
+              className="flex-shrink-0 transition-all duration-200 hover:opacity-90"
+              style={{
+                width: 56, height: 56,
+                borderRadius: 10,
+                overflow: 'hidden',
+                border: i === activeIndex ? '2px solid #4DA2FF' : '1px solid rgba(255,255,255,0.1)',
+                transform: i === activeIndex ? 'scale(1.05)' : 'scale(1)',
+              }}>
+              <img src={img} alt={`View ${i + 1}`} className="w-full h-full object-cover" />
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Main Component ─────────────────────────────────────────────────────────────
 export default function BuyerDashboard() {
   const account = useCurrentAccount();
   const { mutate: signAndExecute } = useSignAndExecuteTransaction();
@@ -37,27 +72,30 @@ export default function BuyerDashboard() {
   const [txLoading, setTxLoading] = useState(false);
   const [txSuccess, setTxSuccess] = useState<string | null>(null);
   const [txError, setTxError] = useState<string | null>(null);
+  const [products, setProducts] = useState<Product[]>(PRODUCTS);
 
   const walletAddress = account?.address ?? '';
 
-  // Filter products
-  const filtered = PRODUCTS.filter(p => {
+  useEffect(() => {
+    fetchProducts(category).then(setProducts).catch(() => {
+      setProducts(PRODUCTS);
+    });
+  }, [category]);
+
+  const filtered = products.filter(p => {
     const matchSearch = p.name.toLowerCase().includes(search.toLowerCase()) ||
-                        p.tags.some(t => t.toLowerCase().includes(search.toLowerCase()));
+                        p.tags.some((t: string) => t.toLowerCase().includes(search.toLowerCase()));
     const matchCat = category === 'All' || p.category === category;
     return matchSearch && matchCat;
   });
 
-  // Handle buy
   const handleBuy = async (product: Product, usdcCoinId: string) => {
     if (!account) return;
     setTxLoading(true);
     setTxError(null);
-
     try {
       const tx = new Transaction();
       buildCreateOrder(tx, product.id, product.merchantWallet, product.priceUsdc, usdcCoinId);
-
       signAndExecute(
         { transaction: tx },
         {
@@ -78,7 +116,6 @@ export default function BuyerDashboard() {
     }
   };
 
-  // Handle dispute
   const handleDispute = async (orderId: number) => {
     if (!account) return;
     setTxLoading(true);
@@ -105,7 +142,6 @@ export default function BuyerDashboard() {
       <header className="sticky top-0 z-40 border-b border-white/5 backdrop-blur-xl"
         style={{ background: 'rgba(5,5,15,0.85)' }}>
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between gap-4">
-          {/* Logo */}
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-lg flex items-center justify-center font-black text-sm"
               style={{ background: 'linear-gradient(135deg,#4DA2FF,#6366f1)', fontFamily: 'var(--font-display)' }}>
@@ -114,7 +150,6 @@ export default function BuyerDashboard() {
             <span className="font-bold text-sm hidden sm:block" style={{ fontFamily: 'var(--font-display)' }}>
               Quilvion <span className="text-white/30">· Sui</span>
             </span>
-            {/* ← YE ADD KARO */}
             <a href="/merchant"
               className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all hover:opacity-80"
               style={{ background: 'rgba(77,162,255,0.08)', color: 'rgba(77,162,255,0.7)', border: '1px solid rgba(77,162,255,0.15)' }}>
@@ -122,7 +157,6 @@ export default function BuyerDashboard() {
             </a>
           </div>
 
-          {/* Tabs */}
           <div className="flex items-center gap-1 p-1 rounded-xl border border-white/5"
             style={{ background: 'rgba(255,255,255,0.03)' }}>
             {([
@@ -142,7 +176,6 @@ export default function BuyerDashboard() {
             ))}
           </div>
 
-          {/* Wallet */}
           <ConnectButton />
         </div>
       </header>
@@ -189,10 +222,9 @@ export default function BuyerDashboard() {
         {/* ── BROWSE TAB ── */}
         {account && tab === 'browse' && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-            {/* Stats bar */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8">
               {[
-                { label: 'Products', value: PRODUCTS.length, icon: ShoppingBag, color: '#4DA2FF' },
+                { label: 'Products', value: products.length, icon: ShoppingBag, color: '#4DA2FF' },
                 { label: 'Escrow Protected', value: '100%', icon: Shield, color: '#10b981' },
                 { label: 'Avg Rating', value: '4.8★', icon: Star, color: '#f59e0b' },
                 { label: 'Chain', value: 'Sui', icon: Zap, color: '#AB9FF2' },
@@ -210,7 +242,6 @@ export default function BuyerDashboard() {
               ))}
             </div>
 
-            {/* Search + filter */}
             <div className="flex flex-col sm:flex-row gap-3 mb-6">
               <div className="relative flex-1">
                 <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30" />
@@ -236,7 +267,6 @@ export default function BuyerDashboard() {
               </div>
             </div>
 
-            {/* Product grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {filtered.map((product, i) => (
                 <motion.div key={product.id}
@@ -247,13 +277,14 @@ export default function BuyerDashboard() {
                   onClick={() => setSelectedProduct(product)}
                   whileHover={{ y: -3 }}>
 
-                  {/* Emoji */}
-                  <div className="w-full h-28 rounded-xl flex items-center justify-center text-5xl mb-4"
+                  <div className="w-full h-28 rounded-xl overflow-hidden flex items-center justify-center text-5xl mb-4"
                     style={{ background: 'rgba(255,255,255,0.04)' }}>
-                    {product.emoji}
+                    {product.images && product.images.length > 0
+                      ? <img src={product.images[0]} alt={product.name} className="w-full h-full object-cover" />
+                      : product.emoji
+                    }
                   </div>
 
-                  {/* Info */}
                   <div className="flex items-start justify-between gap-2 mb-2">
                     <div className="flex-1 min-w-0">
                       <span className="text-xs text-white/30 uppercase tracking-wider">{product.category}</span>
@@ -267,7 +298,6 @@ export default function BuyerDashboard() {
                     </div>
                   </div>
 
-                  {/* Tags */}
                   <div className="flex flex-wrap gap-1 mb-3">
                     {product.tags.slice(0, 2).map(tag => (
                       <span key={tag} className="text-xs px-2 py-0.5 rounded-full"
@@ -277,7 +307,6 @@ export default function BuyerDashboard() {
                     ))}
                   </div>
 
-                  {/* Footer */}
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-1">
                       <Star size={11} className="text-yellow-400 fill-yellow-400" />
@@ -291,7 +320,6 @@ export default function BuyerDashboard() {
                     </div>
                   </div>
 
-                  {/* Buy button */}
                   <motion.button
                     onClick={e => { e.stopPropagation(); setBuyingProduct(product); }}
                     className="mt-3 w-full py-2 rounded-xl text-xs font-bold transition-all opacity-0 group-hover:opacity-100"
@@ -348,13 +376,17 @@ export default function BuyerDashboard() {
               style={{ background: '#0d1020' }}
               initial={{ y: 60, opacity: 0 }} animate={{ y: 0, opacity: 1 }}
               exit={{ y: 60, opacity: 0 }}>
+
               {/* Header */}
               <div className="p-6 border-b border-white/5">
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex items-center gap-4">
-                    <div className="w-14 h-14 rounded-2xl flex items-center justify-center text-3xl"
+                    <div className="w-14 h-14 rounded-2xl overflow-hidden flex items-center justify-center text-3xl flex-shrink-0"
                       style={{ background: 'rgba(255,255,255,0.05)' }}>
-                      {selectedProduct.emoji}
+                      {selectedProduct.images && selectedProduct.images.length > 0
+                        ? <img src={selectedProduct.images[0]} alt={selectedProduct.name} className="w-full h-full object-cover" />
+                        : selectedProduct.emoji
+                      }
                     </div>
                     <div>
                       <span className="text-xs text-white/30 uppercase tracking-wider">{selectedProduct.category}</span>
@@ -369,7 +401,13 @@ export default function BuyerDashboard() {
               </div>
 
               {/* Body */}
-              <div className="p-6 space-y-4">
+              <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
+
+                {/* ── Clickable image gallery ── */}
+                {selectedProduct.images && selectedProduct.images.length > 0 && (
+                  <ImageGallery images={selectedProduct.images} name={selectedProduct.name} />
+                )}
+
                 <p className="text-sm text-white/60 leading-relaxed">{selectedProduct.description}</p>
 
                 <div className="flex flex-wrap gap-2">
@@ -381,7 +419,6 @@ export default function BuyerDashboard() {
                   ))}
                 </div>
 
-                {/* Merchant info */}
                 <div className="p-3 rounded-xl border border-white/5" style={{ background: 'rgba(255,255,255,0.02)' }}>
                   <div className="flex items-center justify-between text-xs text-white/40 mb-2">
                     <span>Merchant</span>
@@ -398,7 +435,6 @@ export default function BuyerDashboard() {
                   </div>
                 </div>
 
-                {/* Price + escrow note */}
                 <div className="flex items-center justify-between">
                   <div>
                     <div className="text-2xl font-black" style={{ fontFamily: 'var(--font-display)' }}>
@@ -424,7 +460,6 @@ export default function BuyerDashboard() {
         )}
       </AnimatePresence>
 
-      {/* ── BUY MODAL (with risk check) ── */}
       <AnimatePresence>
         {buyingProduct && (
           <BuyModal
@@ -437,7 +472,6 @@ export default function BuyerDashboard() {
         )}
       </AnimatePresence>
 
-      {/* ── TESTNET FOOTER ── */}
       {account && (
         <footer className="fixed bottom-0 left-0 right-0 z-30 border-t border-white/5 backdrop-blur-xl"
           style={{ background: 'rgba(5,5,15,0.9)' }}>
