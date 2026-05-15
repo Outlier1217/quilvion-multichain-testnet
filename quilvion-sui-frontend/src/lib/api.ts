@@ -102,3 +102,107 @@ export async function getXpMessage(params: {
   });
   return res.json();
 }
+
+const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+// Merchant register
+export async function registerMerchant(data: {
+  wallet_address: string;
+  company_name: string;
+  description: string;
+  website?: string;
+  category: string;
+  contact_email: string;
+}) {
+  const res = await fetch(`${API}/api/merchant/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+// Merchant status check by wallet
+export async function getMerchantProfile(wallet: string) {
+  const res = await fetch(`${API}/api/merchant/${wallet}/profile`);
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error("Failed to fetch merchant");
+  return res.json();
+}
+
+// Merchant ke products
+export async function fetchMerchantProducts(wallet: string) {
+  const res = await fetch(`${API}/api/merchant/${wallet}/products`);
+  if (!res.ok) throw new Error("Failed to fetch products");
+  return res.json();
+}
+
+// Product add karo
+export async function addProduct(data: {
+  merchant_wallet: string;
+  name: string;
+  description: string;
+  price_usdc: number;
+  category: string;
+  emoji: string;
+  tags: string[];
+  images: string[];        // ← ye add karo
+  delivery_info: string;
+}) {
+  const res = await fetch(`${API}/api/merchant/product/add`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+// Buyer marketplace — all approved products
+export async function fetchProducts(category?: string) {
+  const url = category && category !== "All"
+    ? `${API}/api/buyer/products?category=${encodeURIComponent(category)}`
+    : `${API}/api/buyer/products`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("Failed to fetch products");
+  const data = await res.json();
+
+  return data.map((p: any) => ({
+    id: p.id,
+    name: p.name,
+    description: p.description,
+    priceUsdc: p.price_usdc,
+    category: p.category,
+    emoji: p.emoji,
+    merchantWallet: p.merchant_wallet,
+    merchantName: p.merchant_name,
+    merchantOrders: p.merchant_orders,
+    merchantSuccessRate: p.merchant_success_rate,
+    rating: p.rating,
+    reviewCount: p.review_count,
+    tags: p.tags || [],
+    images: p.images || [],
+  }));
+}
+
+
+export async function editProduct(productId: number, data: {
+  merchant_wallet: string;
+  name: string;
+  description: string;
+  price_usdc: number;
+  category: string;
+  emoji: string;
+  tags: string[];
+  images: string[];
+  delivery_info: string;
+}) {
+  const res = await fetch(`${API}/api/merchant/product/${productId}/edit`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
