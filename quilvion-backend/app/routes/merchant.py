@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 from app.database import get_db, Merchant, Product
 from app.schemas import MerchantCreate, MerchantOut, ProductCreate
+from pydantic import BaseModel
 import cloudinary
 import cloudinary.uploader
 import os
@@ -175,3 +176,17 @@ def edit_product(product_id: int, data: ProductCreate, db: Session = Depends(get
 def pending_products(db: Session = Depends(get_db)):
     products = db.query(Product).filter(Product.status == "pending").all()
     return [_product_to_dict(p) for p in products]
+
+
+class DescriptionRequest(BaseModel):
+    name: str
+    category: str = ""
+    tags: list[str] = []
+    price: float = 0
+
+@router.post("/generate-description")
+def generate_description(data: DescriptionRequest):
+    from app.llm.claude_client import call_claude, SYSTEM_PRODUCT_WRITER
+    prompt = f"Product: {data.name}\nCategory: {data.category}\nTags: {', '.join(data.tags)}\nPrice: ${data.price} USDC"
+    description = call_claude(SYSTEM_PRODUCT_WRITER, prompt)
+    return {"description": description}
