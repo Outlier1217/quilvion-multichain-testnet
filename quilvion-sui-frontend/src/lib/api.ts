@@ -66,7 +66,7 @@ export async function buyerChat(params: {
   buyerTier?: string;
   buyerOrders?: number;
 }) {
-  const res = await fetch(`${API_BASE}/api/llm/buyer-chat`, {
+  const res = await fetch(`${API_BASE}/api/buyer/ask`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -77,7 +77,7 @@ export async function buyerChat(params: {
       buyer_orders: params.buyerOrders ?? 0,
     }),
   });
-  return res.json();
+  return res.json(); // { reply, products }
 }
 
 // ── XP Message (LLM) ─────────────────────────────────────────────────────────
