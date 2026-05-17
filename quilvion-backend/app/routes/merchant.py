@@ -73,7 +73,7 @@ def register_merchant(data: MerchantCreate, db: Session = Depends(get_db)):
         website=data.website or "",
         category=data.category,
         contact_email=data.contact_email,
-        status="approved",
+        status="pending",
     )
     db.add(merchant)
     db.commit()
@@ -99,9 +99,9 @@ def add_product(data: ProductCreate, db: Session = Depends(get_db)):
         Merchant.wallet_address == data.merchant_wallet
     ).first()
     if not merchant:
-        raise HTTPException(status_code=404, detail="Pehle merchant register karo")
-    if merchant.status != "approved":
-        raise HTTPException(status_code=403, detail="Merchant approved nahi hai abhi")
+        raise HTTPException(status_code=404, detail="Please Register a Merchant")
+    if merchant.status != "pending":
+        raise HTTPException(status_code=403, detail="Merchant is not approved yet")
 
     product = Product(
         merchant_wallet=data.merchant_wallet,
@@ -114,7 +114,7 @@ def add_product(data: ProductCreate, db: Session = Depends(get_db)):
         tags=",".join(data.tags),
         images=",".join(data.images),   # ← NAYA
         delivery_info=data.delivery_info,
-        status="approved",
+        status="pending",
     )
     db.add(product)
     db.commit()
