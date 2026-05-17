@@ -361,23 +361,23 @@ Badge minting via `mint_tier_badge` is idempotent — a wallet already holding a
 
 ---
 
-## Shared Object Addresses
+## Shared Object Addresses (Latest Testnet Deployment)
 
-### Sui Testnet (Active) ✅
+**Deployed On:** Sui Testnet  
+**Package ID:** `0xb6ee5d919c1ea7a727b9d86af1bc9259b4f68584b9feb03432f545f5a384a2c4`
 
-| Object | Address |
-|---|---|
-| **Package** | `0x08d8ad38d8f4c3f5c2418f2d3d6074b6c01ad5e4be24d0087e55669b22db63c8` |
-| **CommerceCore** | `0x9e0912ec621c42ba0dd5845829ae2780cd08acb185a60ef100a7f7b9857866ac` |
-| **EscrowManager** | `0x8d84f92239f429f7ab4b1fc15c86c8831f024fc572e7226385c67a23d51b54d7` |
-| **ConfigManager** | `0xb75738cce91d139ed6f2f5410b285948524e0abc029343fe606e4e03e8c34155` |
-| **RoleManager** | `0x8d3937e563e21314cff23286fa3849bce952c3a4744b0669222765ff4643f30a` |
-| **ReputationManager** | `0x1b4e4788e188f670d2ac7a0c524d2ea8f5a0cec72b44bb4ab678732ea66ce22b` |
-| **BadgeManager** | `0x1c69c03d026dcb155b29550c6c916494d7786b3d1b5ce723ed2a6a1b74e89eae` |
-| **TreasuryCap (mock USDC)** | `0x15e7d6512072b3e04a99308a6189d2a2abcc53a5318f73c2514a59f9d970e629` |
-| **Deploy Tx** | `7baUq6X3g3w1vgB4mEDY13TghjUf2euJEMGZAfeeD7Dc` |
+| Object                | Address |
+|-----------------------|--------|
+| **Package**           | `0xb6ee5d919c1ea7a727b9d86af1bc9259b4f68584b9feb03432f545f5a384a2c4` |
+| CommerceCore          | `0x49523b3ba05a288e3d9fd330315281d631cfaf95198e094f616eef1c2d135a4f` |
+| EscrowManager         | `0x2665285d76a33cf5d910076e9bfce2d06b08b09ba4b5ad50a385d9b96e3933a3` |
+| ConfigManager         | `0xbc97b93da570249a5d0e8d1df257b8eea7325dfcd12f6245effc4b541f9f77eb` |
+| RoleManager           | `0x54b04b6cd74f63dccdcdd2b8ca4092f7a7685d485bf7f9fcd31745323c7d6eea` |
+| ReputationManager     | `0x191468eeed9f171b0d17e585d5766e5432f9e11043eedade80c31f317c6d8316` |
+| BadgeManager          | `0xfe79d99af734cf510ab066054d7a6599f7323d64b39feea5a76bd496bdc86735` |
+| USDC Faucet           | `0x18774100b4ae6be923746b80780d1a9ca74467a34f852ccdcbaa5c35d55ed325` |
 
-> View on Sui Explorer: https://suiscan.xyz/testnet/object/0x08d8ad38d8f4c3f5c2418f2d3d6074b6c01ad5e4be24d0087e55669b22db63c8
+**Explorer:** [View Package](https://suiscan.xyz/testnet/object/0xb6ee5d919c1ea7a727b9d86af1bc9259b4f68584b9feb03432f545f5a384a2c4)
 
 ### Sui Localnet (Testing History)
 
