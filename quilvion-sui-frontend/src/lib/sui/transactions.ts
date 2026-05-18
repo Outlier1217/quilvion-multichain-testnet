@@ -56,3 +56,19 @@ export function buildCancelOrder(tx: Transaction, orderId: number) {
     ],
   });
 }
+
+// ── release_escrow (Buyer confirms successful delivery) ───────────────────────
+export function buildReleaseEscrow(tx: Transaction, orderId: number) {
+  tx.moveCall({
+    target: `${SUI_CONFIG.PACKAGE_ID}::commerce_core::release_escrow`,
+    arguments: [
+      tx.object(SUI_CONFIG.COMMERCE_CORE),
+      tx.object(SUI_CONFIG.ESCROW_MANAGER),
+      tx.object(SUI_CONFIG.REP_MANAGER),
+      tx.object(SUI_CONFIG.CONFIG_MANAGER),
+      tx.object(SUI_CONFIG.ROLE_MANAGER),
+      tx.pure.u64(orderId),
+      tx.object(SUI_CONFIG.CLOCK),
+    ],
+  });
+}
