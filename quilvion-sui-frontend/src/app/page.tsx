@@ -11,17 +11,14 @@ import {
 } from 'lucide-react';
 import { PRODUCTS, CATEGORIES, type Product } from '@/lib/products';
 import { getRiskScore, getFraudExplanation, buyerChat, fetchProducts } from '@/lib/api';
-import { buildCreateOrder, buildRaiseDispute } from '@/lib/sui/transactions';
+import { buildCreateOrder, buildRaiseDispute, buildReleaseEscrow } from '@/lib/sui/transactions';
 import { SUI_CONFIG } from '@/lib/sui/constants';
 import { BuyerChat } from '@/components/BuyerChat';
 import { OrderCard } from '@/components/OrderCard';
 import { BuyModal } from '@/components/BuyModal';
 import { MintUsdc } from '@/components/MintUsdc';
+import { fetchBuyerOrders } from '@/lib/api';
 
-const DUMMY_ORDERS = [
-  { id: 15, productName: "Web3 Dev Bootcamp", amountUsdc: 89, status: "COMPLETED", createdAt: "2025-05-01" },
-  { id: 16, productName: "DeFi Dashboard Template", amountUsdc: 149, status: "PENDING", createdAt: "2025-05-03" },
-];
 
 // ── Image Gallery Component ────────────────────────────────────────────────────
 function ImageGallery({ images, name }: { images: string[]; name: string }) {
@@ -70,9 +67,12 @@ export default function BuyerDashboard() {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [buyingProduct, setBuyingProduct] = useState<Product | null>(null);
   const [txLoading, setTxLoading] = useState(false);
+  const [releasingOrderId, setReleasingOrderId] = useState<number | null>(null);
   const [txSuccess, setTxSuccess] = useState<string | null>(null);
   const [txError, setTxError] = useState<string | null>(null);
   const [products, setProducts] = useState<Product[]>(PRODUCTS);
+  const [orders, setOrders] = useState<any[]>([]);
+  const [ordersLoading, setOrdersLoading] = useState(false);
 
   const walletAddress = account?.address ?? '';
 
@@ -81,6 +81,20 @@ export default function BuyerDashboard() {
       setProducts(PRODUCTS);
     });
   }, [category]);
+
+    // Fetch real orders
+  useEffect(() => {
+    if (account?.address && tab === 'orders') {
+      setOrdersLoading(true);
+      fetchBuyerOrders(account.address)
+        .then(setOrders)
+        .catch(err => {
+          console.error("Failed to fetch orders:", err);
+          setOrders([]);
+        })
+        .finally(() => setOrdersLoading(false));
+    }
+  }, [account?.address, tab]);
 
   const filtered = products.filter(p => {
     const matchSearch = p.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -131,6 +145,50 @@ export default function BuyerDashboard() {
       );
     } catch (err: any) {
       setTxError(err.message);
+      setTxLoading(false);
+    }
+  };
+
+  const handleReleaseEscrow = async (orderId: number) => {
+    if (!account) return;
+    
+    setTxLoading(true);
+    setTxError(null);
+
+    try {
+      const tx = new Transaction();
+      buildReleaseEscrow(tx, orderId);
+
+      signAndExecute(
+        { transaction: tx },
+        {
+          onSuccess: (result) => {
+            setTxSuccess(`✅ Escrow Released Successfully! Order #${orderId}`);
+            setTxLoading(false);
+            
+            // Refresh orders
+            if (account?.address) {
+              fetchBuyerOrders(account.address).then(setOrders);
+            }
+          },
+          onError: (err: any) => {
+            console.error("Release Error:", err);
+            
+            let message = err.message || "Failed to release escrow";
+            
+            if (message.includes("abort code: 8")) {
+              message = "❌ You can only release orders you purchased and that are still in PENDING status.";
+            } else if (message.includes("abort code")) {
+              message = `Contract Error (Code ${message.match(/\d+/)?.[0] || '?'}) - Check order status`;
+            }
+            
+            setTxError(message);
+            setTxLoading(false);
+          },
+        }
+      );
+    } catch (err: any) {
+      setTxError(err.message || "Transaction failed");
       setTxLoading(false);
     }
   };
@@ -274,12 +332,19 @@ export default function BuyerDashboard() {
                   onClick={() => setSelectedProduct(product)}
                   whileHover={{ y: -3 }}>
 
-                  <div className="w-full h-28 rounded-xl overflow-hidden flex items-center justify-center text-5xl mb-4"
-                    style={{ background: 'rgba(255,255,255,0.04)' }}>
-                    {product.images && product.images.length > 0
-                      ? <img src={product.images[0]} alt={product.name} className="w-full h-full object-cover" />
-                      : product.emoji
-                    }
+                  <div className="w-full h-44 rounded-2xl overflow-hidden relative mb-4 border border-white/5"
+                    style={{ background: 'rgba(255,255,255,0.03)' }}>
+                    {product.images && product.images.length > 0 ? (
+                      <img 
+                        src={product.images[0]} 
+                        alt={product.name} 
+                        className="w-full h-full object-cover transition-transform group-hover:scale-105 duration-500" 
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-6xl">
+                        {product.emoji}
+                      </div>
+                    )}
                   </div>
 
                   <div className="flex items-start justify-between gap-2 mb-2">
@@ -319,8 +384,11 @@ export default function BuyerDashboard() {
 
                   <motion.button
                     onClick={e => { e.stopPropagation(); setBuyingProduct(product); }}
-                    className="mt-3 w-full py-2 rounded-xl text-xs font-bold transition-all opacity-0 group-hover:opacity-100"
-                    style={{ background: 'linear-gradient(135deg,#4DA2FF,#6366f1)' }}
+                    className="mt-4 w-full py-2.5 rounded-xl text-xs font-bold transition-all active:scale-95"
+                    style={{ 
+                      background: 'linear-gradient(135deg,#4DA2FF,#6366f1)',
+                      boxShadow: '0 4px 15px rgba(77, 162, 255, 0.3)'
+                    }}
                     whileTap={{ scale: 0.97 }}>
                     Buy Now · ${product.priceUsdc} USDC
                   </motion.button>
@@ -333,22 +401,29 @@ export default function BuyerDashboard() {
         {/* ── ORDERS TAB ── */}
         {account && tab === 'orders' && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-            <h2 className="text-xl font-black mb-6" style={{ fontFamily: 'var(--font-display)' }}>
-              My Orders
-            </h2>
-            {DUMMY_ORDERS.length === 0 ? (
-              <div className="text-center py-16 text-white/30">
-                <Package size={40} className="mx-auto mb-3 opacity-30" />
-                <p>No orders yet. Go shop something!</p>
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-black" style={{ fontFamily: 'var(--font-display)' }}>
+                My Orders
+              </h2>
+              {ordersLoading && <div className="text-sm text-white/50">Loading orders...</div>}
+            </div>
+
+            {orders.length === 0 ? (
+              <div className="text-center py-20 text-white/30">
+                <Package size={48} className="mx-auto mb-4 opacity-40" />
+                <p className="text-lg">No orders yet</p>
+                <p className="text-sm mt-2">Your on-chain orders will appear here</p>
               </div>
             ) : (
               <div className="space-y-3">
-                {DUMMY_ORDERS.map(order => (
+                {orders.map(order => (
                   <OrderCard
                     key={order.id}
                     order={order}
                     onDispute={() => handleDispute(order.id)}
+                    onRelease={handleReleaseEscrow}
                     loading={txLoading}
+                    // releasingOrderId={releasingOrderId}
                   />
                 ))}
               </div>
