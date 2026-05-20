@@ -27,4 +27,4 @@ export const SUI_CONFIG = {
 export const toUsdc   = (display: number) => display * 1_000_000;
 export const fromUsdc = (micro:   number) => micro   / 1_000_000;
 
-export const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+export const API_BASE = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, '') || "http://localhost:8000";

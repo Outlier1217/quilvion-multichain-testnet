@@ -1,0 +1,6 @@
+DATABASE_URL="url_link"
+GROQ_API_KEY=your_api_key
+CLOUDINARY_CLOUD_NAME=cloud-name
+CLOUDINARY_API_KEY=cloud-key
+CLOUDINARY_API_SECRET=cloud-secret-key
+ADMIN_SECRET=admin-pass
