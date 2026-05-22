@@ -7,7 +7,7 @@ const { ethers }      = require("hardhat");
 const { time }        = require("@nomicfoundation/hardhat-network-helpers");
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
-const USDC = (n) => ethers.parseUnits(String(n), 6); // 6 decimals like real USDC
+const USDC = (n) => ethers.parseUnits(String(n), 6);
 
 const Roles = {
   ADMIN_ROLE:    ethers.keccak256(ethers.toUtf8Bytes("ADMIN_ROLE")),
@@ -17,28 +17,26 @@ const Roles = {
   OPERATOR_ROLE: ethers.keccak256(ethers.toUtf8Bytes("OPERATOR_ROLE")),
 };
 
-// ── Fixture: deploy everything fresh for each test ────────────────────────────
+
+// ── Fixture ───────────────────────────────────────────────────────────────────
 async function deployFixture() {
   const [admin, agentWallet, buyer, merchant, buyer2, merchant2, stranger] =
     await ethers.getSigners();
 
-  // 1. MockUSDC
   const MockUSDC = await ethers.getContractFactory("MockUSDC");
   const usdc = await MockUSDC.deploy(admin.address);
   await usdc.waitForDeployment();
 
-  // 2. ConfigManager
   const ConfigManager = await ethers.getContractFactory("ConfigManager");
   const config = await ConfigManager.deploy(
     admin.address,
-    USDC(1000),   // dailySpendLimit
-    USDC(100),    // adminApprovalThreshold
-    250,          // 2.5% fee
-    3 * 24 * 3600 // 3-day refund window
+    USDC(1000),
+    USDC(100),
+    250,
+    3 * 24 * 3600
   );
   await config.waitForDeployment();
 
-  // 3. EscrowLogic
   const EscrowLogic = await ethers.getContractFactory("EscrowLogic");
   const escrow = await EscrowLogic.deploy(
     await usdc.getAddress(),
@@ -47,7 +45,6 @@ async function deployFixture() {
   );
   await escrow.waitForDeployment();
 
-  // 4. ReputationManager
   const ReputationManager = await ethers.getContractFactory("ReputationManager");
   const reputation = await ReputationManager.deploy(
     admin.address,
@@ -55,7 +52,6 @@ async function deployFixture() {
   );
   await reputation.waitForDeployment();
 
-  // 5. CommerceCore
   const CommerceCore = await ethers.getContractFactory("CommerceCore");
   const commerce = await CommerceCore.deploy(
     await usdc.getAddress(),
@@ -66,7 +62,6 @@ async function deployFixture() {
   );
   await commerce.waitForDeployment();
 
-  // 6. SomniaAgentController
   const SomniaAgentController = await ethers.getContractFactory("SomniaAgentController");
   const agent = await SomniaAgentController.deploy(
     await commerce.getAddress(),
@@ -78,7 +73,7 @@ async function deployFixture() {
   );
   await agent.waitForDeployment();
 
-  // ── Role grants (same as deploy.js) ────────────────────────────────────────
+  // Role grants
   await escrow.grantRole(Roles.COMMERCE_ROLE, await commerce.getAddress());
   await reputation.grantRole(Roles.COMMERCE_ROLE, await commerce.getAddress());
   await commerce.grantRole(Roles.BOT_ROLE,   await agent.getAddress());
@@ -86,7 +81,7 @@ async function deployFixture() {
   await config.grantRole(Roles.ADMIN_ROLE,    await agent.getAddress());
   await escrow.grantRole(Roles.ADMIN_ROLE,    await agent.getAddress());
 
-  // ── Fund buyers with USDC and approve CommerceCore ────────────────────────
+  // Fund buyers
   await usdc.mint(buyer.address,  USDC(5000));
   await usdc.mint(buyer2.address, USDC(5000));
   await usdc.connect(buyer).approve(await commerce.getAddress(),  USDC(5000));
@@ -99,7 +94,34 @@ async function deployFixture() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  TEST SUITES
+//  Helper: create a merchant with genuinely low reputation score
+//  Strategy: create 1 large order, raise dispute on it → score drops to 0
+//  This keeps merchant score well below default threshold (40)
+// ─────────────────────────────────────────────────────────────────────────────
+async function setupMerchantWithLowScore(fixtures, minOrders) {
+  const { commerce, buyer, merchant, admin, agent, agentWallet } = fixtures;
+
+  // Lower minOrders requirement for test speed
+  await agent.connect(admin).setMerchantMinOrders(minOrders);
+
+  // Create large orders (stays PENDING in escrow)
+  for (let i = 0; i < minOrders; i++) {
+    await commerce.connect(buyer).createOrder(merchant.address, USDC(150), false);
+  }
+
+  // Raise a dispute on each order → updates merchantScore with disputeRaised=true
+  // We resolve them via admin so the score update happens (RESOLVED state calls updateMerchantScore)
+  // disputeRaised=true → score = (totalOrders - disputes) / totalOrders * 100
+  // With 1 order & 1 dispute → score = 0 → safely below threshold (40)
+  for (let i = 0; i < minOrders; i++) {
+    await commerce.connect(buyer).raiseDispute(i);
+    // Admin resolves in buyer's favour → calls updateMerchantScore(merchant, id, true)
+    // This increments disputes → score drops
+    await commerce.connect(admin).resolveDispute(i, true);
+  }
+  // Now merchant score = 0 (all orders were disputed) — safely below threshold 40
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("SomniaAgentController — Deployment & Roles", function () {
@@ -153,20 +175,15 @@ describe("SomniaAgentController — Deployment & Roles", function () {
 describe("Task 1 — Fraud Scoring Relay", function () {
   it("agent submits risk score for a pending order", async function () {
     const { agent, commerce, buyer, merchant, agentWallet } = await deployFixture();
-
-    // Create small order (auto-completed since < threshold)
-    // Create large order that stays PENDING (>= 100 USDC adminApprovalThreshold)
     await commerce.connect(buyer).createOrder(merchant.address, USDC(200), true);
-    const orderId = 0;
 
     await expect(
-      agent.connect(agentWallet).submitRiskScore(orderId, 55)
+      agent.connect(agentWallet).submitRiskScore(0, 55)
     )
       .to.emit(agent, "AgentRiskScoreSubmitted")
-      .withArgs(orderId, 55, agentWallet.address);
+      .withArgs(0, 55, agentWallet.address);
 
-    // Verify it landed in CommerceCore
-    expect(await commerce.getOrderRiskScore(orderId)).to.equal(55);
+    expect(await commerce.getOrderRiskScore(0)).to.equal(55);
   });
 
   it("reverts if score > 100", async function () {
@@ -187,12 +204,9 @@ describe("Task 1 — Fraud Scoring Relay", function () {
 
   it("batch submits up to 50 scores", async function () {
     const { agent, commerce, buyer, merchant, agentWallet } = await deployFixture();
-
-    // Create 5 large orders
     for (let i = 0; i < 5; i++) {
       await commerce.connect(buyer).createOrder(merchant.address, USDC(150), true);
     }
-
     const orderIds = [0n, 1n, 2n, 3n, 4n];
     const scores   = [10, 20, 30, 40, 50];
 
@@ -229,8 +243,8 @@ describe("Task 1 — Fraud Scoring Relay", function () {
 
     const logs = await agent.getRecentRiskActions(1);
     expect(logs.length).to.equal(1);
-    expect(Number(logs[0][0])).to.equal(0);   // orderId
-    expect(Number(logs[0][1])).to.equal(77);  // score
+    expect(Number(logs[0][0])).to.equal(0);
+    expect(Number(logs[0][1])).to.equal(77);
   });
 });
 
@@ -239,21 +253,15 @@ describe("Task 1 — Fraud Scoring Relay", function () {
 describe("Task 2 — Dispute Auto-Escalation", function () {
   async function setupDisputedOrder(fixtures) {
     const { commerce, buyer, merchant } = fixtures;
-    // Large order → stays PENDING
     await commerce.connect(buyer).createOrder(merchant.address, USDC(200), false);
-    // Buyer raises dispute
     await commerce.connect(buyer).raiseDispute(0);
-    return 0; // orderId
+    return 0;
   }
 
   it("agent resolves high-risk dispute in buyer's favour after delay", async function () {
     const f = await deployFixture();
     const orderId = await setupDisputedOrder(f);
-
-    // Set high risk score
     await f.agent.connect(f.agentWallet).submitRiskScore(orderId, 90);
-
-    // Advance time past 48h delay
     await time.increase(48 * 3600 + 1);
 
     await expect(
@@ -268,23 +276,32 @@ describe("Task 2 — Dispute Auto-Escalation", function () {
   it("agent resolves watchlisted-merchant dispute in buyer's favour", async function () {
     const f = await deployFixture();
 
-    // Create enough orders to allow watchlisting (merchantMinOrders = 5)
-    // We'll lower the threshold for this test via operator
+    // Lower minOrders to 1 for this test
     await f.agent.connect(f.admin).setMerchantMinOrders(1);
-    await f.agent.connect(f.admin).setMerchantWatchlistThreshold(101); // always watchlist
 
-    const orderId = await setupDisputedOrder(f);
+    // Create a second order on a DIFFERENT order ID so we can raise dispute
+    // Step 1: Create one order and complete via dispute to make merchant score = 0
+    await f.commerce.connect(f.buyer).createOrder(f.merchant.address, USDC(150), false);
+    // orderId = 0; raise dispute on it
+    await f.commerce.connect(f.buyer).raiseDispute(0);
+    // Admin resolves in buyer's favour → merchantScore drops (disputes=1, total=1 → score=0)
+    await f.commerce.connect(f.admin).resolveDispute(0, true);
+    // Merchant score is now 0 → below threshold 40 → can be watchlisted
 
-    // Watchlist merchant
+    // Watchlist the merchant (score=0, minOrders=1 satisfied)
     await f.agent.connect(f.agentWallet).agentWatchlistMerchant(f.merchant.address);
     expect(await f.agent.merchantWatchlist(f.merchant.address)).to.be.true;
 
-    // Advance time
+    // Now create a NEW order that goes disputed
+    await f.commerce.connect(f.buyer).createOrder(f.merchant.address, USDC(200), false);
+    // orderId = 1
+    await f.commerce.connect(f.buyer).raiseDispute(1);
+
     await time.increase(48 * 3600 + 1);
 
     await expect(
       f.agent.connect(f.agentWallet).agentResolveDispute(
-        orderId, true, "Merchant on watchlist"
+        1, true, "Merchant on watchlist"
       )
     ).to.emit(f.agent, "AgentDisputeResolved");
   });
@@ -292,7 +309,6 @@ describe("Task 2 — Dispute Auto-Escalation", function () {
   it("reverts if order is not disputed", async function () {
     const { agent, commerce, buyer, merchant, agentWallet } = await deployFixture();
     await commerce.connect(buyer).createOrder(merchant.address, USDC(200), true);
-    // Don't raise dispute
     await time.increase(48 * 3600 + 1);
     await expect(
       agent.connect(agentWallet).agentResolveDispute(0, true, "test")
@@ -303,7 +319,6 @@ describe("Task 2 — Dispute Auto-Escalation", function () {
     const f = await deployFixture();
     const orderId = await setupDisputedOrder(f);
     await f.agent.connect(f.agentWallet).submitRiskScore(orderId, 90);
-    // Don't advance time
     await expect(
       f.agent.connect(f.agentWallet).agentResolveDispute(orderId, true, "too early")
     ).to.be.revertedWith("SomniaAgent: resolve delay not passed");
@@ -312,7 +327,6 @@ describe("Task 2 — Dispute Auto-Escalation", function () {
   it("reverts merchant-favour resolution without sufficient evidence", async function () {
     const f = await deployFixture();
     const orderId = await setupDisputedOrder(f);
-    // Low risk score, not watchlisted
     await f.agent.connect(f.agentWallet).submitRiskScore(orderId, 20);
     await time.increase(48 * 3600 + 1);
 
@@ -330,9 +344,9 @@ describe("Task 2 — Dispute Auto-Escalation", function () {
 
     const logs = await f.agent.getRecentDisputeActions(1);
     expect(logs.length).to.equal(1);
-    expect(Number(logs[0][0])).to.equal(0);    // orderId
-    expect(logs[0][1]).to.be.true;             // favorBuyer
-    expect(logs[0][3]).to.equal("fraud");      // reason
+    expect(Number(logs[0][0])).to.equal(0);
+    expect(logs[0][1]).to.be.true;
+    expect(logs[0][3]).to.equal("fraud");
   });
 });
 
@@ -360,7 +374,7 @@ describe("Task 3 — Dynamic Config Tuning", function () {
 
   it("agent updates platform fee within ceiling", async function () {
     const { agent, config, agentWallet } = await deployFixture();
-    await agent.connect(agentWallet).agentSetPlatformFee(300); // 3%
+    await agent.connect(agentWallet).agentSetPlatformFee(300);
     expect(await config.platformFeeBps()).to.equal(300);
   });
 
@@ -374,9 +388,7 @@ describe("Task 3 — Dynamic Config Tuning", function () {
   it("operator can raise maxAgentFeeBps ceiling", async function () {
     const { agent, agentWallet, admin } = await deployFixture();
     await agent.connect(admin).setMaxAgentFeeBps(700);
-    // Now agent can set 600
     await agent.connect(agentWallet).agentSetPlatformFee(600);
-    // Still can't set 701
     await expect(
       agent.connect(agentWallet).agentSetPlatformFee(701)
     ).to.be.revertedWith("SomniaAgent: fee exceeds agent ceiling");
@@ -384,7 +396,7 @@ describe("Task 3 — Dynamic Config Tuning", function () {
 
   it("agent updates refund window", async function () {
     const { agent, config, agentWallet } = await deployFixture();
-    const newWindow = 5 * 24 * 3600; // 5 days
+    const newWindow = 5 * 24 * 3600;
     await agent.connect(agentWallet).agentSetRefundWindow(newWindow);
     expect(await config.refundWindow()).to.equal(newWindow);
   });
@@ -392,7 +404,7 @@ describe("Task 3 — Dynamic Config Tuning", function () {
   it("reverts refund window below 1 hour", async function () {
     const { agent, agentWallet } = await deployFixture();
     await expect(
-      agent.connect(agentWallet).agentSetRefundWindow(1800) // 30 min
+      agent.connect(agentWallet).agentSetRefundWindow(1800)
     ).to.be.revertedWith("SomniaAgent: window too short");
   });
 
@@ -409,8 +421,8 @@ describe("Task 3 — Dynamic Config Tuning", function () {
     const logs = await agent.getRecentConfigActions(1);
     expect(logs.length).to.equal(1);
     expect(logs[0][0]).to.equal("platformFeeBps");
-    expect(Number(logs[0][1])).to.equal(250); // old
-    expect(Number(logs[0][2])).to.equal(300); // new
+    expect(Number(logs[0][1])).to.equal(250);
+    expect(Number(logs[0][2])).to.equal(300);
   });
 
   it("reverts if non-agent tries config update", async function () {
@@ -424,35 +436,31 @@ describe("Task 3 — Dynamic Config Tuning", function () {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("Task 4 — Merchant Watchlist", function () {
-  async function setupMerchantWithHistory(fixtures, orderCount) {
-    const { commerce, buyer, merchant, admin, agent } = fixtures;
-    // Lower merchantMinOrders so tests don't need to create 5 real orders
-    await agent.connect(admin).setMerchantMinOrders(orderCount);
-    // Set threshold to always-watchlist for easy testing
-    await agent.connect(admin).setMerchantWatchlistThreshold(101);
-
-    // Create orderCount large orders
-    for (let i = 0; i < orderCount; i++) {
-      await commerce.connect(buyer).createOrder(merchant.address, USDC(150), false);
-    }
-  }
-
-  it("agent watchlists a low-score merchant", async function () {
+  it("agent watchlists a merchant with low score", async function () {
     const f = await deployFixture();
-    await setupMerchantWithHistory(f, 1);
+    await setupMerchantWithLowScore(f, 1);
 
-    await expect(
-      f.agent.connect(f.agentWallet).agentWatchlistMerchant(f.merchant.address)
-    )
-      .to.emit(f.agent, "MerchantWatchlisted")
-      .withArgs(f.merchant.address, anyUint(), f.agentWallet.address);
+    // After 1 order all disputed → score = 0 (confirmed below threshold 40)
+    const scoreBefore = await f.reputation.getMerchantScore(f.merchant.address);
+    expect(Number(scoreBefore)).to.be.lessThan(40);
+
+    const tx = await f.agent.connect(f.agentWallet).agentWatchlistMerchant(f.merchant.address);
+    const receipt = await tx.wait();
+
+    // Verify event was emitted
+    const event = receipt.logs.find(
+      (l) => l.fragment && l.fragment.name === "MerchantWatchlisted"
+    );
+    expect(event).to.not.be.undefined;
+    expect(event.args[0]).to.equal(f.merchant.address);
+    expect(event.args[2]).to.equal(f.agentWallet.address);
 
     expect(await f.agent.merchantWatchlist(f.merchant.address)).to.be.true;
   });
 
   it("reverts if merchant already watchlisted", async function () {
     const f = await deployFixture();
-    await setupMerchantWithHistory(f, 1);
+    await setupMerchantWithLowScore(f, 1);
     await f.agent.connect(f.agentWallet).agentWatchlistMerchant(f.merchant.address);
     await expect(
       f.agent.connect(f.agentWallet).agentWatchlistMerchant(f.merchant.address)
@@ -461,7 +469,6 @@ describe("Task 4 — Merchant Watchlist", function () {
 
   it("reverts if merchant has insufficient order history", async function () {
     const { agent, agentWallet, merchant } = await deployFixture();
-    // Default merchantMinOrders = 5; merchant has 0 orders
     await expect(
       agent.connect(agentWallet).agentWatchlistMerchant(merchant.address)
     ).to.be.revertedWith("SomniaAgent: insufficient order history");
@@ -469,12 +476,9 @@ describe("Task 4 — Merchant Watchlist", function () {
 
   it("reverts if merchant score is above threshold", async function () {
     const f = await deployFixture();
-    // Lower minOrders, but keep default threshold (40) — merchant score starts at 0
-    // After completing orders, score = 100 (no disputes)
     await f.agent.connect(f.admin).setMerchantMinOrders(1);
-    // Create and complete a small order (auto-complete) to get score = 100
+    // Small auto-completed order → score = 100, no dispute
     await f.commerce.connect(f.buyer).createOrder(f.merchant.address, USDC(50), true);
-    // Score now = 100, threshold = 40 → score NOT below threshold
     await expect(
       f.agent.connect(f.agentWallet).agentWatchlistMerchant(f.merchant.address)
     ).to.be.revertedWith("SomniaAgent: score above threshold");
@@ -482,7 +486,7 @@ describe("Task 4 — Merchant Watchlist", function () {
 
   it("operator removes merchant from watchlist", async function () {
     const f = await deployFixture();
-    await setupMerchantWithHistory(f, 1);
+    await setupMerchantWithLowScore(f, 1);
     await f.agent.connect(f.agentWallet).agentWatchlistMerchant(f.merchant.address);
 
     await expect(
@@ -514,7 +518,6 @@ describe("Task 4 — Merchant Watchlist", function () {
 describe("Task 5 — Tier Reward Triggers", function () {
   it("agent triggers reward for a buyer with XP", async function () {
     const { agent, commerce, agentWallet, buyer, merchant } = await deployFixture();
-    // Small order auto-completes and awards 10 XP
     await commerce.connect(buyer).createOrder(merchant.address, USDC(50), true);
 
     await expect(
@@ -533,7 +536,6 @@ describe("Task 5 — Tier Reward Triggers", function () {
 
   it("batch reward trigger works for multiple buyers", async function () {
     const { agent, commerce, agentWallet, buyer, buyer2, merchant } = await deployFixture();
-    // Both buyers complete an order
     await commerce.connect(buyer).createOrder(merchant.address, USDC(50), true);
     await commerce.connect(buyer2).createOrder(merchant.address, USDC(50), true);
 
@@ -542,7 +544,6 @@ describe("Task 5 — Tier Reward Triggers", function () {
       .batchTriggerRewards([buyer.address, buyer2.address]);
     const receipt = await tx.wait();
 
-    // Both should emit events
     const events = receipt.logs.filter(
       (l) => l.fragment && l.fragment.name === "AgentRewardTriggered"
     );
@@ -551,7 +552,6 @@ describe("Task 5 — Tier Reward Triggers", function () {
 
   it("batch silently skips zero-address and no-XP buyers", async function () {
     const { agent, agentWallet, buyer } = await deployFixture();
-    // buyer has no XP, zero address — no revert expected
     await expect(
       agent.connect(agentWallet).batchTriggerRewards([ethers.ZeroAddress, buyer.address])
     ).to.not.be.reverted;
@@ -573,8 +573,8 @@ describe("Task 5 — Tier Reward Triggers", function () {
     const logs = await agent.getRecentRewardTriggers(1);
     expect(logs.length).to.equal(1);
     expect(logs[0][0]).to.equal(buyer.address);
-    expect(Number(logs[0][1])).to.equal(10); // xpSnapshot
-    expect(logs[0][2]).to.equal("Bronze");   // tier
+    expect(Number(logs[0][1])).to.equal(10);
+    expect(logs[0][2]).to.equal("Bronze");
   });
 });
 
@@ -591,7 +591,6 @@ describe("Operator Controls", function () {
 
     expect(await agent.agentPaused()).to.be.true;
 
-    // Any agent call should now revert
     await expect(
       agent.connect(agentWallet).submitRiskScore(0, 50)
     ).to.be.revertedWith("SomniaAgent: agent is paused");
@@ -658,14 +657,13 @@ describe("View Functions & Dashboard", function () {
   it("agentStats() returns correct cumulative counts", async function () {
     const { agent, commerce, agentWallet, buyer, merchant } = await deployFixture();
     await commerce.connect(buyer).createOrder(merchant.address, USDC(200), true);
-
     await agent.connect(agentWallet).submitRiskScore(0, 42);
     await agent.connect(agentWallet).agentSetPlatformFee(300);
 
     const stats = await agent.agentStats();
-    expect(Number(stats[0])).to.equal(1); // riskActions
-    expect(Number(stats[2])).to.equal(1); // configActions
-    expect(stats[4]).to.be.false;         // paused
+    expect(Number(stats[0])).to.equal(1);
+    expect(Number(stats[2])).to.equal(1);
+    expect(stats[4]).to.be.false;
   });
 
   it("protocolSnapshot() returns live protocol state", async function () {
@@ -673,9 +671,9 @@ describe("View Functions & Dashboard", function () {
     await commerce.connect(buyer).createOrder(merchant.address, USDC(200), true);
 
     const snap = await agent.protocolSnapshot();
-    expect(Number(snap[0])).to.equal(1);        // totalOrders
-    expect(snap[1]).to.equal(USDC(1000));        // dailySpendLimit
-    expect(Number(snap[3])).to.equal(250);       // platformFeeBps
+    expect(Number(snap[0])).to.equal(1);
+    expect(snap[1]).to.equal(USDC(1000));
+    expect(Number(snap[3])).to.equal(250);
   });
 
   it("getRecentRiskActions() returns latest N actions", async function () {
@@ -684,15 +682,13 @@ describe("View Functions & Dashboard", function () {
       await commerce.connect(buyer).createOrder(merchant.address, USDC(200), true);
       await agent.connect(agentWallet).submitRiskScore(i, i * 10 + 30);
     }
-
     const logs = await agent.getRecentRiskActions(3);
     expect(logs.length).to.equal(3);
-    // Most recent first
-    expect(Number(logs[0][0])).to.equal(2); // last orderId
+    expect(Number(logs[0][0])).to.equal(2);
   });
 
   it("getRecentRiskActions() caps at 50", async function () {
-    const { agent, agentWallet } = await deployFixture();
+    const { agent } = await deployFixture();
     const logs = await agent.getRecentRiskActions(200);
     expect(logs.length).to.be.lte(50);
   });
@@ -704,45 +700,36 @@ describe("Integration — Full Agent Cycle Simulation", function () {
   it("full flow: create order → risk score → dispute → agent resolves", async function () {
     const f = await deployFixture();
 
-    // 1. Buyer creates a large escrowed order
     await f.commerce.connect(f.buyer).createOrder(f.merchant.address, USDC(200), false);
     expect(await f.commerce.totalOrders()).to.equal(1);
 
-    // 2. Agent submits fraud score
     await f.agent.connect(f.agentWallet).submitRiskScore(0, 88);
     expect(await f.commerce.getOrderRiskScore(0)).to.equal(88);
 
-    // 3. Buyer raises dispute
     await f.commerce.connect(f.buyer).raiseDispute(0);
-
-    // 4. Advance time past agent delay
     await time.increase(48 * 3600 + 1);
 
-    // 5. Agent auto-resolves (high risk → favor buyer)
     await expect(
       f.agent.connect(f.agentWallet).agentResolveDispute(
         0, true, "Automated: fraud score 88 exceeds threshold"
       )
     ).to.emit(f.agent, "AgentDisputeResolved");
 
-    // 6. Buyer's XP should be 0 (dispute resolved, no XP awarded on buyer-win)
     expect(await f.reputation.getBuyerXP(f.buyer.address)).to.equal(0);
   });
 
   it("full flow: multiple small orders → XP accrual → Silver tier → reward trigger", async function () {
     const f = await deployFixture();
 
-    // Need 10 orders to reach Silver (100 XP at 10 XP/order)
     for (let i = 0; i < 10; i++) {
       await f.commerce.connect(f.buyer).createOrder(f.merchant.address, USDC(50), true);
     }
 
-    const xp   = await f.reputation.getBuyerXP(f.buyer.address);
-    const tier  = await f.reputation.getBuyerTier(f.buyer.address);
+    const xp  = await f.reputation.getBuyerXP(f.buyer.address);
+    const tier = await f.reputation.getBuyerTier(f.buyer.address);
     expect(Number(xp)).to.equal(100);
     expect(tier).to.equal("Silver");
 
-    // Agent fires reward trigger
     await expect(
       f.agent.connect(f.agentWallet).agentTriggerReward(f.buyer.address)
     )
@@ -753,10 +740,9 @@ describe("Integration — Full Agent Cycle Simulation", function () {
   it("full flow: agent dynamically adjusts config based on volume", async function () {
     const { agent, agentWallet, config } = await deployFixture();
 
-    // Simulate high-volume signal
     await agent.connect(agentWallet).agentSetDailySpendLimit(USDC(1000));
     await agent.connect(agentWallet).agentSetAdminApprovalThreshold(USDC(300));
-    await agent.connect(agentWallet).agentSetPlatformFee(200); // lower fee during growth
+    await agent.connect(agentWallet).agentSetPlatformFee(200);
 
     expect(await config.dailySpendLimit()).to.equal(USDC(1000));
     expect(await config.adminApprovalThreshold()).to.equal(USDC(300));
@@ -766,11 +752,3 @@ describe("Integration — Full Agent Cycle Simulation", function () {
     expect(configLogs.length).to.equal(3);
   });
 });
-
-// ── Chai helper (anyUint matcher) ─────────────────────────────────────────────
-function anyUint() {
-  return {
-    asymmetricMatch: (val) => typeof val === "bigint" && val >= 0n,
-    toString: () => "anyUint",
-  };
-}
