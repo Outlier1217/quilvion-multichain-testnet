@@ -1,12 +1,11 @@
 {
-  "network": "localhost",
-  "deployedAt": "2026-05-22T04:15:49.122Z",
-  "deployer": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
-  "agentWallet": "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
-  "MockUSDC": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
-  "ConfigManager": "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512",
-  "EscrowLogic": "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0",
-  "ReputationManager": "0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9",
-  "CommerceCore": "0xDc64a140Aa3E981100a9becA4E685f962f0cF6C9",
-  "SomniaAgentController": "0x5FC8d32690cc91D4c39d9d3abcBD16989F875707"
+  "network": "somniaTestnet",
+  "deployedAt": "2026-05-24T14:29:19.438Z",
+  "deployer": "0x33E89cecA902e3FEBf86686A4D0Adb195BA6e49A",
+  "MockUSDC": "0xDbA3C917F0710869e9826F37c1e1ee0fcBa951ad",
+  "ConfigManager": "0xbbb3907C31E127664f3E7dA49fF5Fe4c748f9A6c",
+  "EscrowLogic": "0xCE968012e486861B606Fe4790a2cf917695133c9",
+  "ReputationManager": "0x79B47945387a366b8a34B5B198AE21aEfd6b57A6",
+  "CommerceCore": "0xA1fa19D58335b1341c5B8217E26C766fB605B1bA",
+  "SomniaAgentController": "0xdBB640163565C62512c69fEe8fd03E723BB30b40"
 }
