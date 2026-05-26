@@ -1,6 +1,7 @@
 'use client';
 import { motion } from 'framer-motion';
-import { Shield, AlertTriangle, CheckCircle, Clock, Loader2, ExternalLink, Check } from 'lucide-react';
+import { Shield, AlertTriangle, CheckCircle, Clock, Loader2, ExternalLink, Check, Package, Copy } from 'lucide-react';
+import { useState } from 'react';
 
 interface Order {
   id: number;
@@ -10,6 +11,8 @@ interface Order {
   createdAt: string;
   txDigest?: string;
   merchantWallet?: string;
+  riskScore?: number | null;
+  deliveryInfo?: string | null;   // ✅ NEW
 }
 
 const STATUS_CONFIG: Record<string, { color: string; bg: string; icon: any; label: string }> = {
@@ -20,6 +23,10 @@ const STATUS_CONFIG: Record<string, { color: string; bg: string; icon: any; labe
   ESCROW_RELEASED: { color: '#4DA2FF', bg: 'rgba(77,162,255,0.1)',  icon: CheckCircle,   label: 'Released' },
   REFUNDED:        { color: '#AB9FF2', bg: 'rgba(171,159,242,0.1)', icon: CheckCircle,   label: 'Refunded' },
 };
+
+function isUrl(str: string) {
+  try { return Boolean(new URL(str)); } catch { return false; }
+}
 
 export function OrderCard({ 
   order, 
@@ -34,6 +41,28 @@ export function OrderCard({
 }) {
   const cfg = STATUS_CONFIG[order.status] ?? STATUS_CONFIG.PENDING;
   const suiscanUrl = `https://suiscan.xyz/testnet/tx/${order.txDigest}`;
+  const [copied, setCopied] = useState(false);
+  const [accessCopied, setAccessCopied] = useState(false);
+
+  const handleCopy = () => {
+    if (!order.deliveryInfo) return;
+    navigator.clipboard.writeText(order.deliveryInfo);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleAccessOrder = () => {
+    if (!order.deliveryInfo) return;
+
+    if (isUrl(order.deliveryInfo) || order.deliveryInfo.startsWith('/')) {
+      window.open(order.deliveryInfo, '_blank', 'noopener,noreferrer');
+      return;
+    }
+
+    navigator.clipboard.writeText(order.deliveryInfo);
+    setAccessCopied(true);
+    setTimeout(() => setAccessCopied(false), 2000);
+  };
 
   return (
     <motion.div
@@ -55,7 +84,14 @@ export function OrderCard({
           </div>
 
           <h4 className="font-semibold text-white text-sm truncate">{order.productName}</h4>
-          <p className="text-xs text-white/35 mt-0.5">{order.createdAt}</p>
+          <div className="flex items-center gap-2 mt-0.5">
+            <p className="text-xs text-white/35">{order.createdAt}</p>
+            {order.riskScore !== null && order.riskScore !== undefined && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/5 text-white/40 border border-white/5">
+                Risk: {order.riskScore}
+              </span>
+            )}
+          </div>
 
           {order.txDigest && (
             <button
@@ -73,7 +109,94 @@ export function OrderCard({
         </div>
       </div>
 
-      {/* Actions for PENDING Orders */}
+      {/* ── DELIVERY INFO — only when COMPLETED and deliveryInfo exists ── */}
+      {order.status === 'COMPLETED' && order.deliveryInfo && (
+        <motion.div
+          initial={{ opacity: 0, y: 6 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mt-3 p-3 rounded-xl border border-emerald-500/20"
+          style={{ background: 'rgba(16,185,129,0.06)' }}>
+
+          <div className="flex items-center justify-between mb-1.5">
+            <div className="flex items-center gap-1.5">
+              <Package size={11} className="text-emerald-400" />
+              <span className="text-xs font-semibold text-emerald-400">
+                Delivery / Access Info
+              </span>
+            </div>
+            <button
+              onClick={handleCopy}
+              className="flex items-center gap-1 text-[10px] text-white/30 hover:text-white/60 transition-colors">
+              {copied ? <Check size={10} className="text-emerald-400" /> : <Copy size={10} />}
+              {copied ? 'Copied!' : 'Copy'}
+            </button>
+          </div>
+
+          {isUrl(order.deliveryInfo) ? (
+            <a
+              href={order.deliveryInfo}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 transition-colors underline break-all">
+              <ExternalLink size={10} className="flex-shrink-0 mt-0.5" />
+              {order.deliveryInfo}
+            </a>
+          ) : (
+            <p className="text-xs text-white/60 break-all leading-relaxed">
+              {order.deliveryInfo}
+            </p>
+          )}
+        </motion.div>
+      )}
+
+      {/* ── COMPLETED but no delivery info ── */}
+      {order.status === 'COMPLETED' && !order.deliveryInfo && (
+        <div className="mt-3 p-3 rounded-xl border border-white/5"
+          style={{ background: 'rgba(255,255,255,0.02)' }}>
+          <div className="flex items-center gap-1.5 text-[10px] text-white/30">
+            <CheckCircle size={11} className="text-emerald-400" />
+            Order completed. Contact merchant for delivery details.
+          </div>
+        </div>
+      )}
+
+      {/* ── DISPUTED info ── */}
+      {order.status === 'DISPUTED' && (
+        <div className="mt-3 p-3 rounded-xl border border-red-500/15"
+          style={{ background: 'rgba(239,68,68,0.05)' }}>
+          <div className="flex items-center gap-1.5 text-[10px] text-red-400/70">
+            <AlertTriangle size={11} />
+            Dispute raised. Admin will resolve within 48 hours.
+          </div>
+        </div>
+      )}
+
+      {/* ── COMPLETED actions ── */}
+      {order.status === 'COMPLETED' && (
+        <div className="mt-4 pt-4 border-t border-white/5 flex flex-col sm:flex-row gap-2">
+          <button
+            onClick={handleAccessOrder}
+            disabled={!order.deliveryInfo}
+            className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90"
+            style={{ background: 'linear-gradient(135deg,#4DA2FF,#6366f1)', color: '#fff' }}>
+            <ExternalLink size={14} />
+            {order.deliveryInfo
+              ? (accessCopied ? 'Access Info Copied' : 'Access Order')
+              : 'Access Pending'}
+          </button>
+
+          <button
+            onClick={onDispute}
+            disabled={loading}
+            className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all hover:bg-red-500/20 disabled:opacity-50"
+            style={{ background: 'rgba(239,68,68,0.12)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.2)' }}>
+            {loading ? <Loader2 size={14} className="animate-spin" /> : <AlertTriangle size={14} />}
+            Raise Dispute
+          </button>
+        </div>
+      )}
+
+      {/* ── Actions for PENDING Orders ── */}
       {order.status === 'PENDING' && (
         <div className="mt-4 pt-4 border-t border-white/5 flex flex-col sm:flex-row gap-2">
           <button
@@ -84,29 +207,14 @@ export function OrderCard({
             {loading ? <Loader2 size={14} className="animate-spin" /> : <AlertTriangle size={14} />}
             Raise Dispute
           </button>
-
-          {onRelease && (
-            <button
-              onClick={() => onRelease(order.id)}
-              disabled={loading}
-              className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all hover:bg-emerald-600 disabled:opacity-50"
-              style={{ 
-                background: 'linear-gradient(135deg, #10b981, #34d399)', 
-                color: '#fff',
-                boxShadow: '0 4px 15px rgba(16, 185, 129, 0.3)'
-              }}>
-              {loading ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
-              ✅ Release Escrow
-            </button>
-          )}
         </div>
       )}
 
-      {/* Info text */}
+      {/* ── Escrow info text ── */}
       {order.status === 'PENDING' && (
         <div className="mt-3 text-[10px] text-white/40 flex items-center gap-1.5">
           <Shield size={11} className="text-yellow-400" />
-          Funds are in escrow. Click "Release Escrow" after you receive the product.
+          Funds are in escrow. Release is admin-only on this contract.
         </div>
       )}
     </motion.div>
