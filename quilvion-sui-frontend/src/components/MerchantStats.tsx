@@ -15,9 +15,11 @@ interface MerchantStatsProps {
   orders: Order[];
   companyName: string;
   category: string;
+  onDeliver?: (orderId: number) => void;
+  loading?: boolean;
 }
 
-export function MerchantStats({ orders, companyName, category }: MerchantStatsProps) {
+export function MerchantStats({ orders, companyName, category, onDeliver, loading }: MerchantStatsProps) {
   const totalRevenue = orders
     .filter(o => o.status === 'COMPLETED')
     .reduce((sum, o) => sum + o.amountUsdc, 0);
@@ -122,11 +124,21 @@ export function MerchantStats({ orders, companyName, category }: MerchantStatsPr
                   }}>
                   {order.status === 'COMPLETED' && '✓ '}
                   {order.status === 'PENDING' && '⏳ '}
-                  {order.status === 'DISPUTED' && '⚠ '}
-                  {order.status}
-                </span>
-              </div>
-            ))}
+	                  {order.status === 'DISPUTED' && '⚠ '}
+	                  {order.status}
+	                </span>
+
+                  {order.status === 'PENDING' && onDeliver && (
+                    <button
+                      onClick={() => onDeliver(order.id)}
+                      disabled={loading}
+                      className="flex-shrink-0 px-3 py-1.5 rounded-lg text-xs font-bold transition-all hover:scale-105 disabled:opacity-50"
+                      style={{ background: 'linear-gradient(135deg,#4DA2FF,#6366f1)', color: '#fff' }}>
+                      Deliver
+                    </button>
+                  )}
+	              </div>
+	            ))}
           </div>
         )}
       </div>

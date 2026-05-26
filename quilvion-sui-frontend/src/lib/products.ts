@@ -16,6 +16,7 @@ export interface Product {
   reviewCount: number;
   tags: string[];
   images?: string[];
+  deliveryInfo?: string | null;
 }
 
 export const PRODUCTS: Product[] = [

@@ -15,7 +15,8 @@ import { MerchantOnboard, type MerchantData } from '@/components/MerchantOnboard
 import { MerchantProductForm, type MerchantProduct } from '@/components/MerchantProductForm';
 import { MerchantStats } from '@/components/MerchantStats';
 import { SUI_CONFIG } from '@/lib/sui/constants';
-import { registerMerchant, getMerchantProfile, addProduct, fetchMerchantProducts, editProduct } from '@/lib/api';
+import { registerMerchant, getMerchantProfile, addProduct, fetchMerchantProducts, editProduct, fetchMerchantOrders } from '@/lib/api';
+import { buildDeliverDigitalProduct } from '@/lib/sui/transactions';
 import { useEffect } from 'react';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -50,6 +51,8 @@ export default function MerchantDashboard() {
   const [onboardLoading, setOnboardLoading] = useState(false);
   const [productLoading, setProductLoading] = useState(false);
   const [myProducts, setMyProducts] = useState<LocalProduct[]>([]);
+  const [merchantOrders, setMerchantOrders] = useState<any[]>([]);
+  const [ordersLoading, setOrdersLoading] = useState(false);
   const [txSuccess, setTxSuccess] = useState<string | null>(null);
   const [txError, setTxError] = useState<string | null>(null);
   const [editingProduct, setEditingProduct] = useState<LocalProduct | null>(null);
@@ -57,9 +60,10 @@ export default function MerchantDashboard() {
   const walletAddress = account?.address ?? '';
 
   // Simulate onboarding submit (replace with real API/tx later)
-  useEffect(() => {
+  const loadMerchantData = async () => {
     if (!account?.address) return;
-    getMerchantProfile(account.address).then(data => {
+    try {
+      const data = await getMerchantProfile(account.address);
       if (!data) return;
       setMerchantStatus(data.status as MerchantStatus);
       setMerchantData({
@@ -69,18 +73,24 @@ export default function MerchantDashboard() {
         category: data.category,
         contactEmail: data.contact_email,
       });
-      fetchMerchantProducts(account.address).then(products => {
-        setMyProducts(products.map((p: any) => ({
-          ...p,
-          priceUsdc: p.price_usdc,
-          deliveryInfo: p.delivery_info,
-          submittedAt: p.created_at?.split("T")[0] ?? "",
-        })));
-      }).catch(() => {});
-    })
-    .catch(() => {
-      // Backend down — silently ignore
-    });
+      
+      const [products, orders] = await Promise.all([
+        fetchMerchantProducts(account.address),
+        fetchMerchantOrders(account.address)
+      ]);
+
+      setMyProducts(products.map((p: any) => ({
+        ...p,
+        priceUsdc: p.price_usdc,
+        deliveryInfo: p.delivery_info,
+        submittedAt: p.created_at?.split("T")[0] ?? "",
+      })));
+      setMerchantOrders(orders);
+    } catch (err) {}
+  };
+
+  useEffect(() => {
+    loadMerchantData();
   }, [account?.address]);
 
   // handleOnboardSubmit replace karo
@@ -150,7 +160,7 @@ export default function MerchantDashboard() {
         category: product.category,
         emoji: product.emoji,
         tags: product.tags,
-        images: product.images || [],   // ← ye add karo
+        images: product.images || [],
         delivery_info: product.deliveryInfo,
       });
       const updated = await fetchMerchantProducts(walletAddress);
@@ -166,6 +176,33 @@ export default function MerchantDashboard() {
       setTxError(e.message);
     } finally {
       setProductLoading(false);
+    }
+  };
+
+  const handleDeliver = async (orderId: number) => {
+    if (!account) return;
+    setOrdersLoading(true);
+    try {
+      const tx = new Transaction();
+      // Use a dummy hash for demo
+      buildDeliverDigitalProduct(tx, orderId, "ipfs://QmDummyHash" + orderId);
+      signAndExecute(
+        { transaction: tx },
+        {
+          onSuccess: () => {
+            setTxSuccess(`Order #${orderId} marked as delivered!`);
+            loadMerchantData();
+            setOrdersLoading(false);
+          },
+          onError: (err) => {
+            setTxError(err.message);
+            setOrdersLoading(false);
+          }
+        }
+      );
+    } catch (err: any) {
+      setTxError(err.message);
+      setOrdersLoading(false);
     }
   };
 
@@ -385,9 +422,11 @@ export default function MerchantDashboard() {
               </h2>
             </div>
             <MerchantStats
-              orders={DUMMY_MERCHANT_ORDERS}
+              orders={merchantOrders}
               companyName={merchantData.companyName}
               category={merchantData.category}
+              onDeliver={handleDeliver as any}
+              loading={ordersLoading}
             />
           </motion.div>
         )}

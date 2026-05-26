@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.orm import Session
-from app.database import get_db, Merchant, Product
+from app.database import get_db, Merchant, Product, Order
 import os
 
 router = APIRouter()
@@ -94,6 +94,28 @@ def get_all_products(db: Session = Depends(get_db), _=Depends(verify_admin)):
             "created_at": str(p.created_at),
         }
         for p in products
+    ]
+
+
+@router.get("/orders/pending")
+def get_pending_orders(db: Session = Depends(get_db), _=Depends(verify_admin)):
+    orders = db.query(Order).filter(Order.status == "PENDING").order_by(Order.created_at.desc()).all()
+    return [
+        {
+            "id": o.id,
+            "buyer_wallet": o.buyer_wallet,
+            "merchant_wallet": o.merchant_wallet,
+            "product_id": o.product_id,
+            "product_name": o.product_name,
+            "amount_usdc": o.amount_usdc,
+            "status": o.status,
+            "tx_digest": o.tx_digest,
+            "risk_score": o.risk_score,
+            "delivery_info": o.delivery_info,
+            "created_at": str(o.created_at),
+            "updated_at": str(o.updated_at) if o.updated_at else None,
+        }
+        for o in orders
     ]
 
 # ── Approve/reject product ─────────────────────────────────────────────────────

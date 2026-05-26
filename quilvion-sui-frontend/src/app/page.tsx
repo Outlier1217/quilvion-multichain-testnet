@@ -10,14 +10,13 @@ import {
   MessageSquare, Package
 } from 'lucide-react';
 import { PRODUCTS, CATEGORIES, type Product } from '@/lib/products';
-import { getRiskScore, getFraudExplanation, buyerChat, fetchProducts } from '@/lib/api';
+import { getRiskScore, getFraudExplanation, buyerChat, fetchProducts, createOrderRecord, getOrderCreatedEventByDigest, fetchBuyerOrders } from '@/lib/api';
 import { buildCreateOrder, buildRaiseDispute, buildReleaseEscrow } from '@/lib/sui/transactions';
 import { SUI_CONFIG } from '@/lib/sui/constants';
 import { BuyerChat } from '@/components/BuyerChat';
 import { OrderCard } from '@/components/OrderCard';
 import { BuyModal } from '@/components/BuyModal';
 import { MintUsdc } from '@/components/MintUsdc';
-import { fetchBuyerOrders } from '@/lib/api';
 
 
 // ── Image Gallery Component ────────────────────────────────────────────────────
@@ -68,6 +67,7 @@ export default function BuyerDashboard() {
   const [buyingProduct, setBuyingProduct] = useState<Product | null>(null);
   const [txLoading, setTxLoading] = useState(false);
   const [releasingOrderId, setReleasingOrderId] = useState<number | null>(null);
+  const [disputingOrderId, setDisputingOrderId] = useState<number | null>(null);
   const [txSuccess, setTxSuccess] = useState<string | null>(null);
   const [txError, setTxError] = useState<string | null>(null);
   const [products, setProducts] = useState<Product[]>(PRODUCTS);
@@ -113,10 +113,42 @@ export default function BuyerDashboard() {
       signAndExecute(
         { transaction: tx },
         {
-          onSuccess: (result) => {
-            setTxSuccess(`Order placed! Digest: ${result.digest.slice(0, 16)}...`);
-            setBuyingProduct(null);
-            setTxLoading(false);
+          onSuccess: async (result) => {
+            try {
+              const createdEvent = (result as any)?.events?.find((event: any) =>
+                String(event?.type || '').includes('OrderCreated') && event?.parsedJson?.order_id !== undefined
+              ) ?? await getOrderCreatedEventByDigest(result.digest);
+
+              const orderId = Number(createdEvent?.parsedJson?.order_id);
+              if (!orderId) {
+                throw new Error('Could not read the new order id from the transaction');
+              }
+
+              await createOrderRecord({
+                id: orderId,
+                buyer_wallet: account.address,
+                merchant_wallet: product.merchantWallet,
+                product_id: product.id,
+                product_name: product.name,
+                amount_usdc: product.priceUsdc,
+                status: 'PENDING',
+                tx_digest: result.digest,
+                risk_score: null,
+                delivery_info: product.deliveryInfo ?? null,
+              });
+
+              if (account?.address) {
+                fetchBuyerOrders(account.address).then(setOrders);
+              }
+
+              setTxSuccess(`Order placed and saved! Order #${orderId}`);
+              setBuyingProduct(null);
+            } catch (syncErr: any) {
+              console.error('Failed to persist order record:', syncErr);
+              setTxError(syncErr.message || 'Order created on-chain, but failed to save in database');
+            } finally {
+              setTxLoading(false);
+            }
           },
           onError: (err) => {
             setTxError(err.message);
@@ -132,20 +164,23 @@ export default function BuyerDashboard() {
 
   const handleDispute = async (orderId: number) => {
     if (!account) return;
+    setDisputingOrderId(orderId);
     setTxLoading(true);
+    setTxError(null);
     try {
       const tx = new Transaction();
       buildRaiseDispute(tx, orderId);
       signAndExecute(
         { transaction: tx },
         {
-          onSuccess: () => { setTxSuccess(`Dispute raised for order #${orderId}`); setTxLoading(false); },
-          onError: (err) => { setTxError(err.message); setTxLoading(false); },
+          onSuccess: () => { setTxSuccess(`Dispute raised for order #${orderId}`); setTxLoading(false); setDisputingOrderId(null); },
+          onError: (err) => { setTxError(err.message); setTxLoading(false); setDisputingOrderId(null); },
         }
       );
     } catch (err: any) {
       setTxError(err.message);
       setTxLoading(false);
+      setDisputingOrderId(null);
     }
   };
 
@@ -422,7 +457,7 @@ export default function BuyerDashboard() {
                     order={order}
                     onDispute={() => handleDispute(order.id)}
                     onRelease={handleReleaseEscrow}
-                    loading={txLoading}
+                    loading={txLoading && disputingOrderId === order.id}
                     // releasingOrderId={releasingOrderId}
                   />
                 ))}

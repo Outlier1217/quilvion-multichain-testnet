@@ -4,10 +4,16 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Shield, Package, Store, CheckCircle, XCircle,
-  Clock, BarChart3, Eye, Trash2, RefreshCw, Lock
+  Clock, BarChart3, Eye, Trash2, RefreshCw, Lock,
+  AlertTriangle, Scale, Settings
 } from 'lucide-react';
+import { ConnectButton, useSignAndExecuteTransaction, useCurrentAccount } from '@mysten/dapp-kit';
+import { Transaction } from '@mysten/sui/transactions';
+import { buildResolveDispute, buildReleaseEscrow, buildUpdatePlatformFee } from '@/lib/sui/transactions';
+import { fetchMerchantOrders } from '@/lib/api';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const ADMIN_WALLET = '0x8bc4555d0f1c8365fd377e9823f993b59b90b62e5eb375db084112f2e29711fa';
 
 // ── Admin auth ─────────────────────────────────────────────────────────────────
 const ADMIN_SECRET = process.env.NEXT_PUBLIC_ADMIN_SECRET || 'quilvion-admin-2025';
@@ -52,14 +58,22 @@ function StatusBadge({ status }: { status: string }) {
 // ── Main Component ─────────────────────────────────────────────────────────────
 export default function AdminPanel() {
   const [authed, setAuthed] = useState(false);
-  const [secretInput, setSecretInput] = useState('');
-  const [tab, setTab] = useState<'stats' | 'merchants' | 'products'>('stats');
+  const [tab, setTab] = useState<'stats' | 'merchants' | 'products' | 'disputes' | 'config'>('stats');
   const [stats, setStats] = useState<any>(null);
   const [merchants, setMerchants] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
+  const [pendingOrders, setPendingOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [txLoading, setTxLoading] = useState(false);
+  const account = useCurrentAccount();
+  const { mutate: signAndExecute } = useSignAndExecuteTransaction();
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
   const api = useAdminApi();
+
+  useEffect(() => {
+    const isAdminWallet = account?.address?.toLowerCase() === ADMIN_WALLET.toLowerCase();
+    setAuthed(Boolean(isAdminWallet));
+  }, [account?.address]);
 
   const showToast = (msg: string, ok = true) => {
     setToast({ msg, ok });
@@ -77,6 +91,8 @@ export default function AdminPanel() {
       setStats(s);
       setMerchants(m);
       setProducts(p);
+      const orders = await api.get('/orders/pending');
+      setPendingOrders(Array.isArray(orders) ? orders : []);
     } catch {
       showToast('Failed to load data', false);
     } finally {
@@ -107,14 +123,94 @@ export default function AdminPanel() {
     loadAll();
   };
 
-  // ── Login screen ─────────────────────────────────────────────────────────────
+  const handleResolveDispute = async (orderId: number, favorBuyer: boolean) => {
+    if (!account) return;
+    setTxLoading(true);
+    try {
+      const tx = new Transaction();
+      buildResolveDispute(tx, orderId, favorBuyer);
+      signAndExecute(
+        { transaction: tx },
+        {
+          onSuccess: () => {
+            showToast(`Dispute #${orderId} resolved!`);
+            setTxLoading(false);
+            loadAll();
+          },
+          onError: (err) => {
+            showToast(err.message, false);
+            setTxLoading(false);
+          }
+        }
+      );
+    } catch (err: any) {
+      showToast(err.message, false);
+      setTxLoading(false);
+    }
+  };
+
+  const handleReleaseEscrow = async (orderId: number) => {
+    if (!account) return;
+    setTxLoading(true);
+    try {
+      const tx = new Transaction();
+      buildReleaseEscrow(tx, orderId);
+      signAndExecute(
+        { transaction: tx },
+        {
+          onSuccess: () => {
+            showToast(`Escrow for order #${orderId} released!`);
+            setTxLoading(false);
+            loadAll();
+          },
+          onError: (err) => {
+            showToast(err.message, false);
+            setTxLoading(false);
+          }
+        }
+      );
+    } catch (err: any) {
+      showToast(err.message, false);
+      setTxLoading(false);
+    }
+  };
+
+  const handleUpdateFee = async (bps: number) => {
+    if (!account) return;
+    setTxLoading(true);
+    try {
+      const tx = new Transaction();
+      buildUpdatePlatformFee(tx, bps);
+      signAndExecute(
+        { transaction: tx },
+        {
+          onSuccess: () => {
+            showToast(`Platform fee updated to ${bps/100}%`);
+            setTxLoading(false);
+          },
+          onError: (err) => {
+            showToast(err.message, false);
+            setTxLoading(false);
+          }
+        }
+      );
+    } catch (err: any) {
+      showToast(err.message, false);
+      setTxLoading(false);
+    }
+  };
+
+  // ── Gate screen for non-admin wallets ────────────────────────────────────────
   if (!authed) {
     return (
-      <div className="min-h-screen flex items-center justify-center"
+      <div className="min-h-screen flex flex-col items-center justify-center gap-6"
         style={{ background: '#05050f' }}>
+        
+        {/* Main Gate Card */}
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
-          className="w-full max-w-sm p-8 rounded-3xl border border-white/8"
+          className="w-full max-w-md p-8 rounded-3xl border border-white/8"
           style={{ background: 'rgba(255,255,255,0.02)' }}>
+          
           <div className="flex items-center gap-3 mb-6">
             <img src="/logo.png" alt="Quilvion" className="w-9 h-9 rounded-xl object-contain" />
             <div>
@@ -122,30 +218,68 @@ export default function AdminPanel() {
               <p className="text-xs text-white/35">Quilvion · Restricted Access</p>
             </div>
           </div>
-          <div className="space-y-3">
-            <div className="relative">
-              <Lock size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30" />
-              <input
-                type="password"
-                value={secretInput}
-                onChange={e => setSecretInput(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && setAuthed(secretInput === ADMIN_SECRET)}
-                placeholder="Admin secret key"
-                className="w-full pl-9 pr-4 py-3 rounded-xl border border-white/8 text-sm outline-none"
-                style={{ background: 'rgba(255,255,255,0.04)', color: '#fff' }}
-              />
+
+          <div className="space-y-6">
+            <div className="space-y-2">
+              <p className="text-sm font-semibold text-white">
+                👛 Wallet Connection Required
+              </p>
+              <p className="text-xs text-white/50">
+                Connect the authorized admin wallet to access the dashboard.
+              </p>
             </div>
-            <button
-              onClick={() => {
-                if (secretInput === ADMIN_SECRET) setAuthed(true);
-                else alert('Wrong secret key');
-              }}
-              className="w-full py-3 rounded-xl font-bold text-sm transition-all hover:scale-[1.02]"
-              style={{ background: 'linear-gradient(135deg,#4DA2FF,#6366f1)' }}>
-              Enter Admin Panel
-            </button>
+
+            {account && account.address.toLowerCase() !== ADMIN_WALLET.toLowerCase() && (
+              <div className="p-4 rounded-2xl border border-red-500/30 bg-red-500/10">
+                <p className="text-xs font-semibold text-red-300 mb-2">⚠️ Access Denied</p>
+                <p className="text-xs text-red-300/70 font-mono break-all mb-3">
+                  {account.address}
+                </p>
+                <p className="text-xs text-red-300/60">
+                  This wallet is not authorized. Please switch to the admin wallet.
+                </p>
+              </div>
+            )}
+
+            {account && account.address.toLowerCase() === ADMIN_WALLET.toLowerCase() && (
+              <div className="p-4 rounded-2xl border border-emerald-500/30 bg-emerald-500/10">
+                <p className="text-xs font-semibold text-emerald-300">✓ Admin Wallet Connected</p>
+              </div>
+            )}
+
+            <div className="bg-white/5 rounded-2xl p-4 border border-white/10">
+              <p className="text-xs text-white/40 mb-4 font-mono break-all">
+                Admin: {ADMIN_WALLET}
+              </p>
+              <div style={{ minHeight: '50px' }} className="flex items-center justify-center">
+                <ConnectButton />
+              </div>
+            </div>
+
+            {account && (
+              <button
+                onClick={() => {
+                  // Disconnect by clearing account
+                  window.location.reload();
+                }}
+                className="w-full py-2 px-4 rounded-xl text-xs font-semibold transition-all"
+                style={{
+                  background: 'rgba(239,68,68,0.1)',
+                  color: '#ef4444',
+                  border: '1px solid rgba(239,68,68,0.2)'
+                }}>
+                Disconnect Wallet
+              </button>
+            )}
           </div>
         </motion.div>
+
+        {/* Helpful note */}
+        <div className="max-w-md text-center">
+          <p className="text-xs text-white/30">
+            💡 Make sure you're connected to Sui Testnet
+          </p>
+        </div>
       </div>
     );
   }
@@ -187,6 +321,8 @@ export default function AdminPanel() {
               { id: 'stats',     icon: BarChart3, label: 'Overview' },
               { id: 'merchants', icon: Store,     label: `Merchants${stats ? ` (${stats.merchants.pending})` : ''}` },
               { id: 'products',  icon: Package,   label: `Products${stats ? ` (${stats.products.pending})` : ''}` },
+              { id: 'disputes',  icon: AlertTriangle, label: 'Disputes' },
+              { id: 'config',    icon: Settings,  label: 'Config' },
             ].map(t => (
               <button key={t.id} onClick={() => setTab(t.id as any)}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
@@ -417,6 +553,75 @@ export default function AdminPanel() {
                 ))}
               </div>
             )}
+          </motion.div>
+        )}
+
+        {/* ── DISPUTES TAB ── */}
+        {tab === 'disputes' && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
+            <h2 className="text-xl font-black">Pending Escrow Orders</h2>
+            <div className="p-4 rounded-2xl border border-white/5 bg-white/2 text-sm text-white/40">
+              These are real DB-backed escrow orders waiting for admin action.
+            </div>
+            {pendingOrders.length === 0 ? (
+              <div className="p-5 rounded-2xl border border-white/5 bg-white/2 text-sm text-white/35">
+                No pending escrow orders right now.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {pendingOrders.map(order => (
+                  <div key={order.id} className="p-5 rounded-2xl border border-white/5 bg-white/2">
+                    <div className="flex items-start justify-between gap-4 mb-4">
+                      <div>
+                        <h3 className="font-bold text-white">Order #{order.id}</h3>
+                        <p className="text-xs text-white/40">{order.product_name}</p>
+                        <p className="text-xs text-white/35 mt-1 font-mono break-all">Buyer: {order.buyer_wallet}</p>
+                        <p className="text-xs text-white/35 mt-0.5 font-mono break-all">Merchant: {order.merchant_wallet}</p>
+                      </div>
+                      <div className="text-right">
+                        <div className="font-black text-white">${order.amount_usdc}</div>
+                        <div className="text-xs text-white/30">USDC</div>
+                        {order.risk_score !== null && order.risk_score !== undefined && (
+                          <div className="text-[10px] mt-1 text-white/30">Risk: {order.risk_score}</div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex gap-3">
+                      <button onClick={() => handleReleaseEscrow(order.id)} disabled={txLoading}
+                        className="flex-1 py-2 rounded-xl bg-emerald-500/15 text-emerald-300 text-xs font-bold border border-emerald-500/20 hover:bg-emerald-500/25 transition-all">
+                        Release Escrow
+                      </button>
+                      <button onClick={() => handleResolveDispute(order.id, true)} disabled={txLoading}
+                        className="flex-1 py-2 rounded-xl bg-blue-500/15 text-blue-300 text-xs font-bold border border-blue-500/20 hover:bg-blue-500/25 transition-all">
+                        Refund Buyer
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </motion.div>
+        )}
+
+        {/* ── CONFIG TAB ── */}
+        {tab === 'config' && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
+            <h2 className="text-xl font-black">Protocol Configuration</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="p-6 rounded-2xl border border-white/5 bg-white/2">
+                <div className="flex items-center gap-3 mb-4">
+                  <Settings size={18} className="text-blue-400" />
+                  <h3 className="font-bold text-white">Platform Fee</h3>
+                </div>
+                <p className="text-xs text-white/40 mb-4">Current fee: 2.5% (250 bps)</p>
+                <div className="flex gap-2">
+                  <button onClick={() => handleUpdateFee(200)} className="px-3 py-1.5 rounded-lg bg-white/5 text-xs hover:bg-white/10">2.0%</button>
+                  <button onClick={() => handleUpdateFee(250)} className="px-3 py-1.5 rounded-lg bg-white/5 text-xs hover:bg-white/10">2.5%</button>
+                  <button onClick={() => handleUpdateFee(300)} className="px-3 py-1.5 rounded-lg bg-white/5 text-xs hover:bg-white/10">3.0%</button>
+                </div>
+              </div>
+            </div>
           </motion.div>
         )}
       </main>
