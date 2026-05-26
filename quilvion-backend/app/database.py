@@ -63,6 +63,24 @@ class Product(Base):
     created_at            = Column(DateTime, default=datetime.datetime.utcnow)
 
 
+class Order(Base):
+    __tablename__ = "orders"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    buyer_wallet = Column(String(100), nullable=False, index=True)
+    merchant_wallet = Column(String(100), nullable=False, index=True)
+    product_id = Column(Integer, nullable=False)
+    product_name = Column(String(300), nullable=False)
+    amount_usdc = Column(Float, nullable=False)
+    status = Column(String(20), default="PENDING", index=True)  # PENDING, COMPLETED, DISPUTED, CANCELLED, ESCROW_RELEASED, REFUNDED
+    tx_digest = Column(String(100), nullable=True)
+    risk_score = Column(Integer, nullable=True)
+    delivery_info = Column(Text, nullable=True)  # Merchant-provided delivery/link after completion
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+
+
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
 def get_db():
@@ -76,11 +94,15 @@ def get_db():
 
 def init_db():
     Base.metadata.create_all(bind=engine)
-    # images column manually add karo agar table pehle se exist karta hai
+    # Add missing columns to products
     try:
         with engine.connect() as conn:
             conn.execute(__import__('sqlalchemy').text(
                 "ALTER TABLE products ADD COLUMN IF NOT EXISTS images TEXT DEFAULT ''"
+            ))
+            # Add delivery_info to orders if table exists
+            conn.execute(__import__('sqlalchemy').text(
+                "ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_info TEXT DEFAULT NULL"
             ))
             conn.commit()
     except Exception:

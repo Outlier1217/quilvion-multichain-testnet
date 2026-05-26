@@ -71,6 +71,7 @@ def get_all_products(
             "emoji": p.emoji,
             "tags": [t.strip() for t in p.tags.split(",") if t.strip()] if p.tags else [],
             "images": [i.strip() for i in p.images.split(",") if i.strip()] if p.images else [],
+            "delivery_info": p.delivery_info,
             "status": p.status,
             "rating": p.rating,
             "review_count": p.review_count,
