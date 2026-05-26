@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import uvicorn
 
-from app.routes import risk, llm, merchant, dispute, buyer, admin
+from app.routes import risk, llm, merchant, dispute, buyer, admin, orders
 
 
 @asynccontextmanager
@@ -47,6 +47,7 @@ app.include_router(merchant.router, prefix="/api/merchant",  tags=["Merchant"])
 app.include_router(dispute.router,  prefix="/api/dispute",   tags=["Dispute"])
 app.include_router(buyer.router,    prefix="/api/buyer",     tags=["Buyer"])
 app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
+app.include_router(orders.router, prefix="/api")
 
 
 
