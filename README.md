@@ -1,568 +1,217 @@
-# Quilvion — AI-Powered Decentralized Commerce Protocol
+Quilvion — AI-Powered Multichain Decentralized Commerce Protocol
+The Problem
 
-## Overview
+Traditional e-commerce platforms force users to trust centralized companies with:
 
-**Quilvion** is an AI-powered Web3 commerce platform built on the **Sui blockchain** that combines:
+Personal information
+Banking details
+Passwords
+Transaction history
+Marketplace reputation
 
-* **On-chain escrow protection**
-* **AI fraud detection**
-* **LLM-powered marketplace intelligence**
-* **Merchant reputation systems**
-* **Automated dispute resolution**
-* **USDC-based settlement infrastructure**
+This creates major problems:
 
-The platform enables buyers and merchants to transact securely without relying on centralized trust. Every purchase is protected by smart contracts, analyzed by machine learning before execution, and backed by an AI-assisted dispute and reputation system.
+Data breaches
+Identity theft
+Fake merchants
+Chargeback abuse
+Centralized censorship
+Platform-controlled reputation systems
 
-Quilvion is designed as a scalable decentralized commerce protocol where blockchain handles settlement and escrow, while AI improves security, trust, and marketplace usability.
+In Web2 commerce, users trust the company.
 
----
+In Web3, trust should belong to the protocol.
 
-# Core Philosophy — Wallet as Identity
+The Solution
 
-Traditional e-commerce platforms force users to repeatedly create accounts, manage passwords, and share sensitive personal information across multiple websites. This creates fragmented user experiences, increases the risk of data leaks, and introduces unnecessary friction into online commerce.
+Quilvion is an AI-powered multichain decentralized commerce protocol that combines:
 
-Quilvion rethinks this model entirely through one core principle:
+Smart-contract escrow
+AI fraud detection
+On-chain reputation systems
+Autonomous dispute resolution
+Wallet-based identity
+Cross-chain commerce infrastructure
 
-> **Wallet = Identity**
+The platform removes centralized trust completely.
 
-Instead of creating accounts, users simply connect their Web3 wallet and instantly access the marketplace.
+Instead of creating accounts:
 
-The wallet becomes:
+Wallet = Identity
 
-* the identity layer,
-* the payment layer,
-* the reputation layer,
-* and the trust layer.
+Users simply connect their wallet and transact securely through blockchain escrow protected by AI-powered risk analysis.
 
-This eliminates:
+Core Features
+AI Fraud Detection
 
-* account creation friction,
-* password dependency,
-* repetitive KYC exposure,
-* and centralized ownership of user identity.
+Every transaction is analyzed using an ML fraud engine before settlement.
 
-Users maintain control of their data while interacting with a decentralized commerce ecosystem powered by blockchain escrow and AI-driven trust systems.
+Fraud Engine
+XGBoost Risk Detection
+Real-time scoring
+Behavioral transaction analysis
+High-risk transaction blocking
+AI Marketplace Intelligence
 
-Sensitive information such as shipping details or contact information is shared only when necessary and can be removed after order completion.
+Powered by Groq LLaMA 3.3 70B.
 
-Quilvion is designed to become a next-generation commerce infrastructure where trust is established through cryptography, reputation, and intelligent risk analysis — not centralized platforms.
+Features
+AI buyer assistant
+AI dispute summaries
+AI product descriptions
+Merchant trust profiling
+Reputation explanations
+Buyer XP notifications
+Smart Contract Escrow
+
+Funds remain locked on-chain until:
+
+Product delivery confirmation
+AI verification
+Admin approval (if required)
+Dispute resolution
+Reputation System
+Buyers
+XP progression
+NFT badge tiers
+On-chain trust history
+Merchants
+Reputation scoring
+Dispute ratio analysis
+Risk monitoring
+Technology Stack
+Layer	Technology
+Frontend	Next.js 15, TypeScript, Tailwind CSS
+Backend	FastAPI, PostgreSQL, SQLAlchemy
+AI/ML	XGBoost, Groq LLaMA 3.3 70B
+Blockchain	Solidity, Move, Rust
+Infrastructure	Node.js, Ethers.js
+Settlement	USDC
+Smart Contracts	EVM + Sui + Solana + Aptos
+Multichain Architecture
+
+Quilvion is designed as a fully multichain commerce infrastructure.
+
+The protocol supports multiple blockchain ecosystems with dedicated smart contracts and AI integrations.
+
+Current Blockchain Deployments
+Sui
+Status
+
+✅ Deployed
+
+Smart Contracts
+Commerce Core
+Escrow Logic
+Reputation Manager
+Config Manager
+Wallet Address
+
+**Deployed On:** Sui Testnet  
+**Package ID:** `0xb6ee5d919c1ea7a727b9d86af1bc9259b4f68584b9feb03432f545f5a384a2c4`
+
+| Object                | Address |
+|-----------------------|--------|
+| **Package**           | `0xb6ee5d919c1ea7a727b9d86af1bc9259b4f68584b9feb03432f545f5a384a2c4` |
+| CommerceCore          | `0x49523b3ba05a288e3d9fd330315281d631cfaf95198e094f616eef1c2d135a4f` |
+| EscrowManager         | `0x2665285d76a33cf5d910076e9bfce2d06b08b09ba4b5ad50a385d9b96e3933a3` |
+| ConfigManager         | `0xbc97b93da570249a5d0e8d1df257b8eea7325dfcd12f6245effc4b541f9f77eb` |
+| RoleManager           | `0x54b04b6cd74f63dccdcdd2b8ca4092f7a7685d485bf7f9fcd31745323c7d6eea` |
+| ReputationManager     | `0x191468eeed9f171b0d17e585d5766e5432f9e11043eedade80c31f317c6d8316` |
+| BadgeManager          | `0xfe79d99af734cf510ab066054d7a6599f7323d64b39feea5a76bd496bdc86735` |
+| USDC Faucet           | `0x18774100b4ae6be923746b80780d1a9ca74467a34f852ccdcbaa5c35d55ed325` |
+
+**Explorer:** [View Package](https://suiscan.xyz/testnet/object/0xb6ee5d919c1ea7a727b9d86af1bc9259b4f68584b9feb03432f545f5a384a2c4)
 
 
-# Core Vision
+Somnia
+Status
 
-Traditional e-commerce platforms rely entirely on centralized control for payments, disputes, fraud prevention, and trust management.
+✅ Live on Testnet
 
-Quilvion replaces this model with:
+Deployed Contracts
+Contract	Address
+CommerceCore	0xA1fa19D58335b1341c5B8217E26C766fB605B1bA
+SomniaAgentController	0xdBB640163565C62512c69fEe8fd03E723BB30b40
+EscrowLogic	0xCE968012e486861B606Fe4790a2cf917695133c9
+ReputationManager	0x79B47945387a366b8a34B5B198AE21aEfd6b57A6
+ConfigManager	0xbbb3907C31E127664f3E7dA49fF5Fe4c748f9A6c
+Chain ID
 
-* **Smart-contract escrow**
-* **Transparent on-chain settlement**
-* **AI-assisted fraud prevention**
-* **Decentralized merchant reputation**
-* **Automated dispute workflows**
-* **Natural-language marketplace interactions**
+50312
 
-The result is a marketplace where users do not need to trust a company — they trust the protocol.
+Upcoming Blockchain Integrations
+Arbitrum
+Status
 
----
+🚧 Smart contracts ready
+🚧 Backend integration ready
+⏳ Frontend integration pending
 
-# System Architecture
+SKALE
+Status
 
-```text
-Buyer / Merchant / Admin
+🚧 Testnet smart contracts ready
+🚧 Mainnet smart contracts ready
+🚧 Backend infrastructure ready
+⏳ Frontend integration pending
+
+Solana
+Status
+
+🚧 Smart contracts ready
+🚧 Backend integration ready
+⏳ Frontend integration pending
+
+Aptos
+Status
+
+🚧 Smart contracts ready
+🚧 Backend integration ready
+⏳ Frontend integration pending
+
+Development Status
+Component	Status
+Smart Contracts	✅ Ready
+AI Backend	✅ Ready
+ML Fraud Engine	✅ Active
+Autonomous AI Agent	✅ Ready
+Cross-Chain Logic	✅ Ready
+Frontend UI	🚧 In Progress
+
+Architecture Overview
+Buyer / Merchant
         ↓
-   Next.js 15 Frontend
+   Wallet Connection
         ↓
-   FastAPI Backend (Python)
-   ├── XGBoost ML Fraud Engine
-   ├── Groq LLaMA 3.3 70B
-   └── PostgreSQL (Neon)
+   Next.js Frontend
         ↓
-   Sui Blockchain (Move Smart Contracts)
+ FastAPI AI Backend
+ ├── XGBoost Fraud Engine
+ ├── Groq LLM
+ └── PostgreSQL
         ↓
-   Escrow + Settlement + Reputation
-```
-
----
-
-# Key Features
-
-## On-Chain Escrow Protection
-
-Every transaction is protected through Move smart contracts deployed on the Sui blockchain.
-
-### Purchase Flow
-
-1. Buyer initiates purchase using USDC
-2. Funds are locked into escrow
-3. AI fraud analysis runs before settlement
-4. Merchant delivers product
-5. Funds release automatically or through admin approval
-6. Buyers can raise disputes during the refund window
-
-### Escrow Logic
-
-* Low-risk / low-value orders can auto-complete
-* Medium-risk transactions remain in escrow
-* High-risk transactions are blocked before signing
-* Refunds and disputes are enforced fully on-chain
-
----
-
-# AI Infrastructure
-
-Quilvion integrates two independent AI systems optimized for different purposes.
-
-| System                | Model              | Purpose                            |
-| --------------------- | ------------------ | ---------------------------------- |
-| Fraud Detection       | XGBoost            | Real-time transaction risk scoring |
-| Language Intelligence | Groq LLaMA 3.3 70B | Marketplace AI features            |
-
-The systems are intentionally separated:
-
-* The ML model delivers risk analysis in milliseconds
-* The LLM generates explanations and intelligent interactions asynchronously
-
-This architecture ensures fast transaction decisions without waiting for language generation.
-
----
-
-# AI Fraud Detection Engine
-
-## XGBoost Risk Scoring
-
-Every purchase request is analyzed before wallet confirmation.
-
-### Inputs
-
-* Wallet age
-* Historical order volume
-* Merchant interaction history
-* Transaction amount
-* Chain context
-* Purchase behavior
-
-### Risk Levels
-
-| Score  | Level           | Action              |
-| ------ | --------------- | ------------------- |
-| 0–49   | LOW             | Auto-complete       |
-| 50–74  | MEDIUM          | Escrow hold         |
-| 75–100 | HIGH / CRITICAL | Transaction blocked |
-
-### Fraud Prevention Workflow
-
-```text
-Buyer clicks Buy
+ Multichain Smart Contracts
+ ├── Sui
+ ├── Somnia
+ ├── Arbitrum
+ ├── SKALE
+ ├── Solana
+ └── Aptos
         ↓
-ML Risk Engine Executes (~50ms)
-        ↓
-Risk Score + Signals Returned
-        ↓
-Transaction Allowed / Held / Blocked
-```
+ Escrow + Settlement + Reputation
 
-The user sees transparent fraud signals explaining why a transaction was flagged.
+ Vision
 
----
+Quilvion is building the future of decentralized commerce where:
 
-# LLM-Powered Marketplace Intelligence
+AI handles marketplace intelligence
+Blockchain handles settlement and trust
+Wallets replace centralized accounts
+Reputation becomes portable across chains
+Escrow becomes autonomous
+Commerce becomes borderless and multichain
 
-Quilvion integrates Groq-hosted LLaMA 3.3 70B for six production AI systems.
+Built By
 
-## 1. Fraud Explanation Agent
-
-Transforms ML risk scores into human-readable explanations.
-
-Example:
-
-> “This transaction was flagged because the wallet is newly created and the order value is significantly above the buyer’s average.”
-
----
-
-## 2. AI Buyer Assistant
-
-A conversational shopping assistant with live marketplace context.
-
-Capabilities:
-
-* Product discovery
-* Escrow education
-* Merchant comparison
-* Marketplace guidance
-* Product recommendations
-
-Unlike static chatbots, the assistant receives the live PostgreSQL product catalog on every request.
-
----
-
-## 3. AI Product Description Generator
-
-Allows merchants to generate professional product descriptions instantly using natural-language prompts.
-
----
-
-## 4. AI Dispute Summarizer
-
-Aggregates:
-
-* Buyer history
-* Merchant reputation
-* Risk score
-* Transaction timeline
-* Delivery status
-
-Then generates a concise admin recommendation:
-
-* Refund
-* Release
-* Investigate
-
----
-
-## 5. Merchant Risk Profiler
-
-Creates readable merchant trust summaries from raw platform data.
-
----
-
-## 6. XP Tier Notification System
-
-Generates personalized buyer progression messages using real transaction data and platform reputation metrics.
-
----
-
-# Smart Contract Infrastructure
-
-## Blockchain
-
-* **Network:** Sui Testnet
-* **Language:** Move 2024
-* **Settlement Token:** USDC (6 decimals)
-
----
-
-# Smart Contract Modules
-
-## commerce_core
-
-Primary protocol orchestration layer.
-
-Handles:
-
-* Order creation
-* Escrow release
-* Disputes
-* Settlement
-* Risk score storage
-* Digital delivery verification
-
----
-
-## escrow_logic
-
-Manages:
-
-* Fund locking
-* Treasury balances
-* Refund execution
-* Fee deduction
-* Daily spending limits
-
----
-
-## access_control
-
-Role-based permissions:
-
-| Role          | Permission        |
-| ------------- | ----------------- |
-| DEFAULT_ADMIN | Full governance   |
-| ADMIN         | Escrow + disputes |
-| BOT           | AI risk scoring   |
-| MERCHANT      | Product delivery  |
-
----
-
-## reputation_manager
-
-Tracks:
-
-* Buyer XP
-* Buyer tiers
-* Merchant trust scores
-* Order history
-* Badge minting
-
----
-
-## config_manager
-
-Dynamic runtime configuration:
-
-* Platform fees
-* Refund windows
-* Escrow thresholds
-* Spending limits
-* Verification periods
-
-All configurable without redeploying contracts.
-
----
-
-# Reputation System
-
-## Buyer Progression
-
-| XP      | Tier   |
-| ------- | ------ |
-| 0–99    | Bronze |
-| 100–499 | Silver |
-| 500+    | Gold   |
-
-Buyers earn XP for successful purchases.
-
----
-
-## Merchant Reputation
-
-| Event            | Impact    |
-| ---------------- | --------- |
-| Successful order | +5 score  |
-| Dispute loss     | -20 score |
-
-This creates a self-regulating marketplace trust system.
-
----
-
-# Dispute Resolution System
-
-## Workflow
-
-```text
-Buyer raises dispute
-        ↓
-Order status becomes DISPUTED
-        ↓
-Admin reviews AI-generated summary
-        ↓
-Resolution:
-   ├── Refund Buyer
-   └── Release Merchant Payment
-```
-
-The protocol supports:
-
-* Refund windows
-* Escrow enforcement
-* AI-assisted moderation
-* Reputation adjustments
-
----
-
-# Frontend Architecture
-
-## Stack
-
-* Next.js 15
-* TypeScript
-* Tailwind CSS
-* Framer Motion
-* @mysten/dapp-kit
-* Cloudinary CDN
-
----
-
-# User Portals
-
-## Buyer Dashboard
-
-Features:
-
-* Marketplace browsing
-* Product filtering
-* Wallet connection
-* AI assistant
-* Escrow tracking
-* Order management
-* Dispute creation
-
----
-
-## Merchant Portal
-
-Features:
-
-* Merchant onboarding
-* Product management
-* Revenue analytics
-* AI-generated descriptions
-* Order tracking
-* Image uploads
-
----
-
-## Admin Panel
-
-Features:
-
-* Merchant approval
-* Product moderation
-* Dispute management
-* Marketplace analytics
-* Risk monitoring
-
-Protected through secret-key authentication.
-
----
-
-# Backend Architecture
-
-## Stack
-
-* FastAPI
-* PostgreSQL (Neon)
-* SQLAlchemy
-* XGBoost
-* Groq API
-* Cloudinary SDK
-
----
-
-# Database Strategy
-
-PostgreSQL acts as the off-chain data layer.
-
-Stores:
-
-* Products
-* Merchant profiles
-* Images
-* Marketplace metadata
-* Order metadata
-
-The blockchain only handles:
-
-* Escrow
-* Settlement
-* Reputation
-* Dispute enforcement
-
-This dramatically improves scalability and reduces blockchain costs.
-
----
-
-# Security Model
-
-## Smart Contract Security
-
-* Escrow-enforced settlement
-* Role-based permissions
-* Treasury isolation
-* Spend-limit enforcement
-* Configurable dispute windows
-
----
-
-## AI Guardrails
-
-* High-risk transactions blocked before signing
-* LLM cannot access blockchain operations
-* AI cannot execute transactions
-* Admin routes protected by secret authentication
-
----
-
-# Live Deployment
-
-## Sui Testnet Deployment
-
-| Component       | Status      |
-| --------------- | ----------- |
-| Smart Contracts | Deployed    |
-| AI Backend      | Operational |
-| Frontend        | Functional  |
-| PostgreSQL      | Connected   |
-| Fraud Engine    | Active      |
-| LLM Features    | Active      |
-
----
-
-# Technology Stack Summary
-
-## Frontend
-
-* Next.js 15
-* TypeScript
-* Tailwind CSS
-* Framer Motion
-
-## Backend
-
-* FastAPI
-* PostgreSQL
-* SQLAlchemy
-* XGBoost
-* Groq LLaMA 3.3 70B
-
-## Blockchain
-
-* Sui Move 2024
-* USDC Escrow
-* On-chain dispute management
-
----
-
-# Why Quilvion Matters
-
-Quilvion demonstrates how AI and blockchain can work together to solve one of the biggest problems in decentralized commerce:
-
-## Trust
-
-The platform combines:
-
-* Smart-contract guarantees
-* Machine-learning fraud analysis
-* Reputation economics
-* AI-assisted moderation
-* Transparent escrow systems
-
-This creates a commerce infrastructure that is:
-
-* More transparent than Web2 marketplaces
-* More secure than traditional P2P systems
-* More scalable than fully on-chain commerce
-* More intelligent than static escrow protocols
-
----
-
-# Future Roadmap
-
-## Planned Expansion
-
-* Cross-chain support
-* Stablecoin multi-currency settlement
-* Autonomous AI moderation agents
-* Decentralized governance
-* Real-time behavioral fraud detection
-* NFT-based merchant identity
-* AI-powered merchant analytics
-* Mobile application
-* Mainnet deployment
-
----
-
-# Conclusion
-
-Quilvion is not just a marketplace.
-
-It is an AI-assisted decentralized commerce protocol that combines:
-
-* blockchain settlement,
-* smart-contract escrow,
-* machine learning fraud prevention,
-* AI-powered user interaction,
-* and decentralized trust infrastructure
-
-into a single scalable Web3 platform.
-
-The protocol demonstrates how AI and blockchain can complement each other to build safer, more intelligent digital economies.
+Mustak Aalam
