@@ -4,6 +4,7 @@ from sqlalchemy import and_
 from pydantic import BaseModel
 from typing import Optional, List
 import datetime
+import httpx
 
 from app.database import get_db, Order, Product
 
@@ -192,3 +193,216 @@ async def update_order_status(
     db.commit()
     
     return {"success": True, "status": status}
+
+
+@router.post("/sync-status/{order_id}")
+async def sync_order_status(
+    order_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Sync order status from blockchain.
+    Checks the transaction digest and looks for events to determine actual status.
+    """
+    
+    order = db.query(Order).filter(Order.id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    
+    if not order.tx_digest:
+        return {
+            "success": False, 
+            "message": "No tx_digest found - cannot sync",
+            "current_status": order.status
+        }
+    
+    try:
+        # Query Sui RPC to get transaction details
+        sui_rpc = "https://fullnode.testnet.sui.io:443"
+        
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.post(
+                sui_rpc,
+                json={
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "sui_getTransactionBlock",
+                    "params": [
+                        order.tx_digest,
+                        {
+                            "showInput": False,
+                            "showRawInput": False,
+                            "showEffects": True,
+                            "showEvents": True,
+                            "showObjectChanges": False,
+                            "showBalanceChanges": False
+                        }
+                    ]
+                }
+            )
+        
+        data = response.json()
+        
+        if "error" in data:
+            return {
+                "success": False,
+                "message": f"RPC error: {data['error']['message']}",
+                "current_status": order.status
+            }
+        
+        result = data.get("result", {})
+        events = result.get("events", [])
+        
+        # Check events to determine actual status
+        event_types = [e.get("type", "") for e in events]
+        
+        # If OrderCompleted event exists, order was auto-completed
+        if any("OrderCompleted" in et for et in event_types):
+            new_status = "COMPLETED"
+        # If OrderCreated only, order is pending
+        elif any("OrderCreated" in et for et in event_types):
+            new_status = "PENDING"
+        else:
+            new_status = order.status  # Keep existing if unknown
+        
+        # Update database if status changed
+        if order.status != new_status:
+            old_status = order.status
+            order.status = new_status
+            order.updated_at = datetime.datetime.utcnow()
+            db.commit()
+            
+            return {
+                "success": True,
+                "message": f"Status synced: {old_status} → {new_status}",
+                "old_status": old_status,
+                "new_status": new_status,
+                "events": event_types
+            }
+        else:
+            return {
+                "success": True,
+                "message": "Status already correct",
+                "current_status": new_status,
+                "events": event_types
+            }
+    
+    except Exception as e:
+        return {
+            "success": False,
+            "message": f"Sync failed: {str(e)}",
+            "current_status": order.status
+        }
+
+
+@router.post("/sync-all-pending")
+async def sync_all_pending_orders(
+    db: Session = Depends(get_db)
+):
+    """
+    Bulk sync all PENDING orders from blockchain.
+    Checks events to find which orders were auto-completed.
+    """
+    
+    try:
+        # Get all PENDING orders
+        pending_orders = db.query(Order).filter(Order.status == "PENDING").all()
+        
+        if not pending_orders:
+            return {
+                "success": True,
+                "message": "No pending orders to sync",
+                "synced_count": 0,
+                "updated_count": 0,
+                "details": []
+            }
+        
+        sui_rpc = "https://fullnode.testnet.sui.io:443"
+        updated_count = 0
+        details = []
+        
+        async with httpx.AsyncClient(timeout=30) as client:
+            for order in pending_orders:
+                if not order.tx_digest:
+                    continue
+                
+                try:
+                    response = await client.post(
+                        sui_rpc,
+                        json={
+                            "jsonrpc": "2.0",
+                            "id": 1,
+                            "method": "sui_getTransactionBlock",
+                            "params": [
+                                order.tx_digest,
+                                {
+                                    "showInput": False,
+                                    "showRawInput": False,
+                                    "showEffects": True,
+                                    "showEvents": True,
+                                    "showObjectChanges": False,
+                                    "showBalanceChanges": False
+                                }
+                            ]
+                        }
+                    )
+                    
+                    data = response.json()
+                    
+                    if "error" in data:
+                        details.append({
+                            "order_id": order.id,
+                            "status": "error",
+                            "message": data['error']['message']
+                        })
+                        continue
+                    
+                    result = data.get("result", {})
+                    events = result.get("events", [])
+                    event_types = [e.get("type", "") for e in events]
+                    
+                    # Determine if order was completed
+                    if any("OrderCompleted" in et for et in event_types):
+                        order.status = "COMPLETED"
+                        order.updated_at = datetime.datetime.utcnow()
+                        updated_count += 1
+                        
+                        details.append({
+                            "order_id": order.id,
+                            "status": "updated",
+                            "new_status": "COMPLETED",
+                            "events": event_types
+                        })
+                    else:
+                        details.append({
+                            "order_id": order.id,
+                            "status": "no_change",
+                            "current_status": "PENDING",
+                            "events": event_types
+                        })
+                
+                except Exception as e:
+                    details.append({
+                        "order_id": order.id,
+                        "status": "error",
+                        "message": str(e)
+                    })
+        
+        # Commit all changes
+        db.commit()
+        
+        return {
+            "success": True,
+            "message": f"Bulk sync complete: {updated_count} orders updated",
+            "synced_count": len(pending_orders),
+            "updated_count": updated_count,
+            "details": details
+        }
+    
+    except Exception as e:
+        return {
+            "success": False,
+            "message": f"Bulk sync failed: {str(e)}",
+            "synced_count": 0,
+            "updated_count": 0
+        }

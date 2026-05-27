@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import { ConnectButton, useSignAndExecuteTransaction, useCurrentAccount } from '@mysten/dapp-kit';
 import { Transaction } from '@mysten/sui/transactions';
-import { buildResolveDispute, buildReleaseEscrow, buildUpdatePlatformFee } from '@/lib/sui/transactions';
+import { buildCreateOrder, buildCancelOrder, buildRaiseDispute, buildReleaseEscrow } from '@/lib/sui/transactions';
 import { fetchMerchantOrders } from '@/lib/api';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -75,6 +75,15 @@ export default function AdminPanel() {
     setAuthed(Boolean(isAdminWallet));
   }, [account?.address]);
 
+  const handleDisconnect = async () => {
+    // Reset auth state - ConnectButton will handle the actual wallet disconnection UI
+    setAuthed(false);
+    setStats(null);
+    setMerchants([]);
+    setProducts([]);
+    setPendingOrders([]);
+  };
+
   const showToast = (msg: string, ok = true) => {
     setToast({ msg, ok });
     setTimeout(() => setToast(null), 3000);
@@ -123,17 +132,17 @@ export default function AdminPanel() {
     loadAll();
   };
 
-  const handleResolveDispute = async (orderId: number, favorBuyer: boolean) => {
+  const handleResolveDispute = async (orderId: number) => {
     if (!account) return;
     setTxLoading(true);
     try {
       const tx = new Transaction();
-      buildResolveDispute(tx, orderId, favorBuyer);
+      buildRaiseDispute(tx, orderId);
       signAndExecute(
         { transaction: tx },
         {
           onSuccess: () => {
-            showToast(`Dispute #${orderId} resolved!`);
+            showToast(`Dispute #${orderId} raised!`);
             setTxLoading(false);
             loadAll();
           },
@@ -175,35 +184,12 @@ export default function AdminPanel() {
     }
   };
 
-  const handleUpdateFee = async (bps: number) => {
-    if (!account) return;
-    setTxLoading(true);
-    try {
-      const tx = new Transaction();
-      buildUpdatePlatformFee(tx, bps);
-      signAndExecute(
-        { transaction: tx },
-        {
-          onSuccess: () => {
-            showToast(`Platform fee updated to ${bps/100}%`);
-            setTxLoading(false);
-          },
-          onError: (err) => {
-            showToast(err.message, false);
-            setTxLoading(false);
-          }
-        }
-      );
-    } catch (err: any) {
-      showToast(err.message, false);
-      setTxLoading(false);
-    }
-  };
+  // Platform fee update functionality would go here when buildUpdatePlatformFee is available
 
   // ── Gate screen for non-admin wallets ────────────────────────────────────────
   if (!authed) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center gap-6"
+      <div className="min-h-screen flex flex-col items-center justify-center gap-6 p-4"
         style={{ background: '#05050f' }}>
         
         {/* Main Gate Card */}
@@ -220,64 +206,118 @@ export default function AdminPanel() {
           </div>
 
           <div className="space-y-6">
-            <div className="space-y-2">
-              <p className="text-sm font-semibold text-white">
-                👛 Wallet Connection Required
-              </p>
-              <p className="text-xs text-white/50">
-                Connect the authorized admin wallet to access the dashboard.
-              </p>
-            </div>
-
-            {account && account.address.toLowerCase() !== ADMIN_WALLET.toLowerCase() && (
-              <div className="p-4 rounded-2xl border border-red-500/30 bg-red-500/10">
-                <p className="text-xs font-semibold text-red-300 mb-2">⚠️ Access Denied</p>
-                <p className="text-xs text-red-300/70 font-mono break-all mb-3">
+            {/* Connection Status */}
+            {!account ? (
+              <div className="space-y-2">
+                <p className="text-sm font-semibold text-white flex items-center gap-2">
+                  <Lock size={14} /> Wallet Connection Required
+                </p>
+                <p className="text-xs text-white/50">
+                  Connect the authorized admin wallet to access the dashboard.
+                </p>
+              </div>
+            ) : account.address.toLowerCase() === ADMIN_WALLET.toLowerCase() ? (
+              <div className="p-4 rounded-2xl border border-emerald-500/30 bg-emerald-500/10">
+                <p className="text-xs font-semibold text-emerald-300 flex items-center gap-2 mb-1">
+                  <CheckCircle size={14} /> Admin Wallet Connected
+                </p>
+                <p className="text-xs text-emerald-300/60 font-mono break-all">
                   {account.address}
                 </p>
+              </div>
+            ) : (
+              <div className="p-4 rounded-2xl border border-red-500/30 bg-red-500/10 space-y-2">
+                <p className="text-xs font-semibold text-red-300 flex items-center gap-2">
+                  <XCircle size={14} /> Access Denied
+                </p>
+                <p className="text-xs text-red-300/70 font-mono break-all">
+                  Connected: {account.address}
+                </p>
                 <p className="text-xs text-red-300/60">
-                  This wallet is not authorized. Please switch to the admin wallet.
+                  This wallet is not authorized. Please disconnect and connect the admin wallet instead.
                 </p>
               </div>
             )}
 
-            {account && account.address.toLowerCase() === ADMIN_WALLET.toLowerCase() && (
-              <div className="p-4 rounded-2xl border border-emerald-500/30 bg-emerald-500/10">
-                <p className="text-xs font-semibold text-emerald-300">✓ Admin Wallet Connected</p>
-              </div>
-            )}
-
-            <div className="bg-white/5 rounded-2xl p-4 border border-white/10">
-              <p className="text-xs text-white/40 mb-4 font-mono break-all">
-                Admin: {ADMIN_WALLET}
+            {/* Admin Wallet Info */}
+            <div className="bg-blue-500/10 rounded-2xl p-4 border border-blue-500/20">
+              <p className="text-xs font-semibold text-blue-300 mb-2">✓ Required Admin Wallet</p>
+              <p className="text-xs text-blue-300/70 font-mono break-all">
+                {ADMIN_WALLET}
               </p>
-              <div style={{ minHeight: '50px' }} className="flex items-center justify-center">
-                <ConnectButton />
-              </div>
             </div>
 
-            {account && (
-              <button
-                onClick={() => {
-                  // Disconnect by clearing account
-                  window.location.reload();
-                }}
-                className="w-full py-2 px-4 rounded-xl text-xs font-semibold transition-all"
-                style={{
-                  background: 'rgba(239,68,68,0.1)',
-                  color: '#ef4444',
-                  border: '1px solid rgba(239,68,68,0.2)'
-                }}>
-                Disconnect Wallet
-              </button>
-            )}
+            {/* Connect/Disconnect Buttons */}
+            <div className="space-y-3">
+              {!account ? (
+                <div className="flex justify-center">
+                  <div className="scale-125">
+                    <ConnectButton />
+                  </div>
+                </div>
+              ) : account.address.toLowerCase() !== ADMIN_WALLET.toLowerCase() ? (
+                <div className="space-y-2">
+                  <p className="text-xs text-center text-white/50 mb-2">
+                    Wrong wallet connected. Switch to the admin wallet above.
+                  </p>
+                  <div className="flex justify-center mb-3">
+                    <div className="scale-125">
+                      <ConnectButton />
+                    </div>
+                  </div>
+                  <button
+                    onClick={handleDisconnect}
+                    className="w-full py-2.5 px-4 rounded-xl text-xs font-bold transition-all hover:scale-105 active:scale-95"
+                    style={{
+                      background: 'rgba(239,68,68,0.15)',
+                      color: '#ef4444',
+                      border: '1px solid rgba(239,68,68,0.3)'
+                    }}>
+                    🔌 Disconnect & Retry
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <p className="text-xs text-center text-emerald-300 font-semibold mb-2">
+                    ✓ You can now access the admin dashboard
+                  </p>
+                  <button
+                    onClick={() => setAuthed(true)}
+                    className="w-full py-2.5 px-4 rounded-xl text-xs font-bold transition-all hover:scale-105 active:scale-95"
+                    style={{
+                      background: 'rgba(16,185,129,0.15)',
+                      color: '#10b981',
+                      border: '1px solid rgba(16,185,129,0.3)'
+                    }}>
+                    ✓ Enter Admin Dashboard
+                  </button>
+                  <button
+                    onClick={handleDisconnect}
+                    className="w-full py-2.5 px-4 rounded-xl text-xs font-bold transition-all hover:scale-105 active:scale-95"
+                    style={{
+                      background: 'rgba(239,68,68,0.15)',
+                      color: '#ef4444',
+                      border: '1px solid rgba(239,68,68,0.3)'
+                    }}>
+                    🔌 Disconnect Wallet
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Testnet Note */}
+            <div className="p-3 rounded-2xl bg-yellow-500/10 border border-yellow-500/20">
+              <p className="text-xs text-yellow-300 flex items-center gap-2">
+                <AlertTriangle size={12} /> Make sure you're on Sui Testnet
+              </p>
+            </div>
           </div>
         </motion.div>
 
-        {/* Helpful note */}
+        {/* Footer Note */}
         <div className="max-w-md text-center">
-          <p className="text-xs text-white/30">
-            💡 Make sure you're connected to Sui Testnet
+          <p className="text-xs text-white/40">
+            🔐 Only the authorized admin wallet can access this panel
           </p>
         </div>
       </div>
@@ -336,12 +376,31 @@ export default function AdminPanel() {
             ))}
           </div>
 
-          <button onClick={loadAll} disabled={loading}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all hover:opacity-80"
-            style={{ background: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.5)' }}>
-            <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
-            Refresh
-          </button>
+          <div className="flex items-center gap-2">
+            <button onClick={loadAll} disabled={loading}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all hover:opacity-80"
+              style={{ background: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.5)' }}>
+              <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
+              Refresh
+            </button>
+            <div className="flex items-center gap-1 p-1 rounded-lg border border-white/10"
+              style={{ background: 'rgba(255,255,255,0.02)' }}>
+              <span className="text-xs text-white/40 px-2">
+                {account?.address?.slice(0, 6)}...{account?.address?.slice(-4)}
+              </span>
+              <button 
+                onClick={handleDisconnect}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all hover:scale-105 active:scale-95"
+                style={{ 
+                  background: 'rgba(239,68,68,0.15)', 
+                  color: '#ef4444',
+                  border: '1px solid rgba(239,68,68,0.2)'
+                }}
+                title="Disconnect wallet and logout">
+                <Lock size={11} /> Disconnect
+              </button>
+            </div>
+          </div>
         </div>
       </header>
 
@@ -592,9 +651,9 @@ export default function AdminPanel() {
                         className="flex-1 py-2 rounded-xl bg-emerald-500/15 text-emerald-300 text-xs font-bold border border-emerald-500/20 hover:bg-emerald-500/25 transition-all">
                         Release Escrow
                       </button>
-                      <button onClick={() => handleResolveDispute(order.id, true)} disabled={txLoading}
+                      <button onClick={() => handleResolveDispute(order.id)} disabled={txLoading}
                         className="flex-1 py-2 rounded-xl bg-blue-500/15 text-blue-300 text-xs font-bold border border-blue-500/20 hover:bg-blue-500/25 transition-all">
-                        Refund Buyer
+                        Raise Dispute
                       </button>
                     </div>
                   </div>
@@ -615,10 +674,8 @@ export default function AdminPanel() {
                   <h3 className="font-bold text-white">Platform Fee</h3>
                 </div>
                 <p className="text-xs text-white/40 mb-4">Current fee: 2.5% (250 bps)</p>
-                <div className="flex gap-2">
-                  <button onClick={() => handleUpdateFee(200)} className="px-3 py-1.5 rounded-lg bg-white/5 text-xs hover:bg-white/10">2.0%</button>
-                  <button onClick={() => handleUpdateFee(250)} className="px-3 py-1.5 rounded-lg bg-white/5 text-xs hover:bg-white/10">2.5%</button>
-                  <button onClick={() => handleUpdateFee(300)} className="px-3 py-1.5 rounded-lg bg-white/5 text-xs hover:bg-white/10">3.0%</button>
+                <div className="p-4 rounded-lg bg-blue-500/10 border border-blue-500/20">
+                  <p className="text-xs text-blue-300">Fee update functionality coming soon</p>
                 </div>
               </div>
             </div>

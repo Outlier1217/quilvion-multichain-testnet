@@ -80,6 +80,20 @@ class Order(Base):
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
 
 
+class BuyerProfile(Base):
+    __tablename__ = "buyer_profiles"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    wallet_address = Column(String(100), unique=True, index=True, nullable=False)
+    xp = Column(Integer, default=0)
+    tier = Column(String(50), default="Bronze")  # Bronze, Silver, Gold
+    daily_spent = Column(Float, default=0.0)
+    daily_limit = Column(Float, default=1000.0)
+    total_orders = Column(Integer, default=0)
+    completed_orders = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 

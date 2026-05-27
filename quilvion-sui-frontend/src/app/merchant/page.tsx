@@ -224,11 +224,20 @@ export default function MerchantDashboard() {
             </span>
           </div>
 
-            <a href="/"
-              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all hover:opacity-80"
-              style={{ background: 'rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.4)', border: '1px solid rgba(255,255,255,0.06)' }}>
-              ← Buyer Shop
-            </a>
+            <div className="flex items-center gap-2">
+              <a href="/"
+                className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all hover:opacity-80"
+                style={{ background: 'rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.4)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                ← Buyer Shop
+              </a>
+              {merchantStatus === 'approved' && (
+                <a href="/merchant/profile"
+                  className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all hover:opacity-80"
+                  style={{ background: 'rgba(107,114,255,0.08)', color: 'rgba(107,114,255,0.7)', border: '1px solid rgba(107,114,255,0.15)' }}>
+                  📊 Profile
+                </a>
+              )}
+            </div>
 
           {/* Tabs — only show dashboard/products if merchant */}
           <div className="flex items-center gap-1 p-1 rounded-xl border border-white/5"

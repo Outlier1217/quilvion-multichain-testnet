@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
-from app.database import get_db, Merchant, Product
+from app.database import get_db, Merchant, Product, Order
 from app.schemas import MerchantCreate, MerchantOut, ProductCreate
 from pydantic import BaseModel
 import cloudinary
@@ -190,3 +190,71 @@ def generate_description(data: DescriptionRequest):
     prompt = f"Product: {data.name}\nCategory: {data.category}\nTags: {', '.join(data.tags)}\nPrice: ${data.price} USDC"
     description = call_claude(SYSTEM_PRODUCT_WRITER, prompt)
     return {"description": description}
+
+
+@router.get("/stats/{wallet_address}")
+def get_merchant_stats(wallet_address: str, db: Session = Depends(get_db)):
+    """Get merchant score, revenue, and order stats"""
+    
+    try:
+        # Get merchant profile
+        merchant = db.query(Merchant).filter(Merchant.wallet_address == wallet_address).first()
+        if not merchant:
+            return {
+                "merchantScore": 0,
+                "totalOrders": 0,
+                "completedOrders": 0,
+                "disputedOrders": 0,
+                "totalRevenue": 0,
+                "averageOrderValue": 0,
+                "successRate": 100,
+                "companyName": "Unknown",
+                "category": "General",
+            }
+        
+        # Get all orders for this merchant
+        orders = db.query(Order).filter(Order.merchant_wallet == wallet_address).all()
+        
+        total_orders = len(orders)
+        completed_orders = sum(1 for o in orders if o.status == "COMPLETED")
+        disputed_orders = sum(1 for o in orders if o.status == "DISPUTED")
+        
+        # Calculate total revenue (from completed orders only)
+        total_revenue = sum(o.amount_usdc for o in orders if o.status == "COMPLETED")
+        
+        # Calculate average order value
+        average_order = sum(o.amount_usdc for o in orders) / len(orders) if orders else 0.0
+        
+        # Calculate success rate
+        success_rate = (completed_orders / total_orders * 100) if total_orders > 0 else 100
+        
+        # Calculate merchant score (from README: +5 per settled order, -20 per dispute against merchant)
+        # For simplicity, we estimate based on completed vs disputed
+        merchant_score = min(100, completed_orders * 5 - disputed_orders * 20)
+        merchant_score = max(0, merchant_score)  # Floor at 0
+        
+        return {
+            "merchantScore": merchant_score,
+            "totalOrders": total_orders,
+            "completedOrders": completed_orders,
+            "disputedOrders": disputed_orders,
+            "totalRevenue": total_revenue,
+            "averageOrderValue": average_order,
+            "successRate": round(success_rate),
+            "companyName": merchant.company_name,
+            "category": merchant.category,
+        }
+    
+    except Exception as e:
+        print(f"Error fetching merchant stats: {str(e)}")
+        return {
+            "merchantScore": 0,
+            "totalOrders": 0,
+            "completedOrders": 0,
+            "disputedOrders": 0,
+            "totalRevenue": 0,
+            "averageOrderValue": 0,
+            "successRate": 100,
+            "companyName": "Unknown",
+            "category": "General",
+        }

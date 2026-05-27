@@ -6,17 +6,20 @@ import { ConnectButton, useCurrentAccount, useSignAndExecuteTransaction } from '
 import { Transaction } from '@mysten/sui/transactions';
 import {
   ShoppingBag, Search, Star, Shield, Zap,
-  X, AlertTriangle, CheckCircle,
+  X, AlertTriangle, CheckCircle, Loader2,
   MessageSquare, Package
 } from 'lucide-react';
 import { PRODUCTS, CATEGORIES, type Product } from '@/lib/products';
-import { getRiskScore, getFraudExplanation, buyerChat, fetchProducts, createOrderRecord, getOrderCreatedEventByDigest, fetchBuyerOrders } from '@/lib/api';
+import { getRiskScore, getFraudExplanation, buyerChat, fetchProducts, createOrderRecord, getOrderCreatedEventByDigest, fetchBuyerOrders, fetchBuyerStats } from '@/lib/api';
 import { buildCreateOrder, buildRaiseDispute, buildReleaseEscrow } from '@/lib/sui/transactions';
 import { SUI_CONFIG } from '@/lib/sui/constants';
 import { BuyerChat } from '@/components/BuyerChat';
 import { OrderCard } from '@/components/OrderCard';
 import { BuyModal } from '@/components/BuyModal';
 import { MintUsdc } from '@/components/MintUsdc';
+import { BuyerProfileCard } from '@/components/BuyerProfileCard';
+import { ProtocolConfigCard } from '@/components/ProtocolConfigCard';
+import { OrderInfoGuide } from '@/components/OrderInfoGuide';
 
 
 // ── Image Gallery Component ────────────────────────────────────────────────────
@@ -70,16 +73,39 @@ export default function BuyerDashboard() {
   const [disputingOrderId, setDisputingOrderId] = useState<number | null>(null);
   const [txSuccess, setTxSuccess] = useState<string | null>(null);
   const [txError, setTxError] = useState<string | null>(null);
-  const [products, setProducts] = useState<Product[]>(PRODUCTS);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [productsLoading, setProductsLoading] = useState(true);
   const [orders, setOrders] = useState<any[]>([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
+  const [buyerStats, setBuyerStats] = useState<any>(null);
+  const [statsLoading, setStatsLoading] = useState(false);
 
   const walletAddress = account?.address ?? '';
 
+  // Fetch buyer stats
   useEffect(() => {
-    fetchProducts(category).then(setProducts).catch(() => {
-      setProducts(PRODUCTS);
-    });
+    if (account?.address && tab === 'orders') {
+      setStatsLoading(true);
+      fetchBuyerStats(account.address)
+        .then(setBuyerStats)
+        .catch(err => {
+          console.error("Failed to fetch buyer stats:", err);
+          setBuyerStats(null);
+        })
+        .finally(() => setStatsLoading(false));
+    }
+  }, [account?.address, tab]);
+
+  // Fetch products on mount and when category changes
+  useEffect(() => {
+    setProductsLoading(true);
+    fetchProducts(category)
+      .then(setProducts)
+      .catch(err => {
+        console.error("Failed to fetch products:", err);
+        setProducts([]);
+      })
+      .finally(() => setProductsLoading(false));
   }, [category]);
 
     // Fetch real orders
@@ -240,6 +266,13 @@ export default function BuyerDashboard() {
             <span className="font-bold text-sm hidden sm:block" style={{ fontFamily: 'var(--font-display)' }}>
               Quilvion <span className="text-white/30">· Sui</span>
             </span>
+            {account && (
+              <a href="/buyer/profile"
+                className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all hover:opacity-80"
+                style={{ background: 'rgba(107,114,255,0.08)', color: 'rgba(107,114,255,0.7)', border: '1px solid rgba(107,114,255,0.15)' }}>
+                👤 Profile
+              </a>
+            )}
             <a href="/merchant"
               className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all hover:opacity-80"
               style={{ background: 'rgba(77,162,255,0.08)', color: 'rgba(77,162,255,0.7)', border: '1px solid rgba(77,162,255,0.15)' }}>
@@ -357,6 +390,18 @@ export default function BuyerDashboard() {
               </div>
             </div>
 
+            {productsLoading ? (
+              <div className="flex items-center justify-center py-16 text-white/50">
+                <Loader2 size={20} className="animate-spin mr-2" />
+                <span>Loading products...</span>
+              </div>
+            ) : filtered.length === 0 ? (
+              <div className="text-center py-16">
+                <ShoppingBag size={48} className="mx-auto mb-4 opacity-30" />
+                <p className="text-white/40 text-lg">No products found</p>
+                <p className="text-white/20 text-sm mt-2">Try adjusting your search or filters</p>
+              </div>
+            ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {filtered.map((product, i) => (
                 <motion.div key={product.id}
@@ -430,39 +475,60 @@ export default function BuyerDashboard() {
                 </motion.div>
               ))}
             </div>
+            )}
           </motion.div>
         )}
 
         {/* ── ORDERS TAB ── */}
         {account && tab === 'orders' && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-black" style={{ fontFamily: 'var(--font-display)' }}>
-                My Orders
-              </h2>
-              {ordersLoading && <div className="text-sm text-white/50">Loading orders...</div>}
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-8">
+            {/* Buyer Profile Stats */}
+            {statsLoading ? (
+              <div className="text-center py-4 text-white/50">Loading your stats...</div>
+            ) : buyerStats ? (
+              <BuyerProfileCard stats={buyerStats} />
+            ) : null}
+
+            {/* Orders */}
+            <div>
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-xl font-black" style={{ fontFamily: 'var(--font-display)' }}>
+                  My Orders
+                </h2>
+                {ordersLoading && <div className="text-sm text-white/50">Loading orders...</div>}
+              </div>
+
+              {orders.length === 0 ? (
+                <div className="text-center py-20 text-white/30">
+                  <Package size={48} className="mx-auto mb-4 opacity-40" />
+                  <p className="text-lg">No orders yet</p>
+                  <p className="text-sm mt-2">Your on-chain orders will appear here</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {orders.map(order => (
+                    <div key={order.id} className="space-y-3">
+                      <OrderCard
+                        order={order}
+                        onDispute={() => handleDispute(order.id)}
+                        onRelease={handleReleaseEscrow}
+                        loading={txLoading && disputingOrderId === order.id}
+                      />
+                      <OrderInfoGuide orderInfo={{
+                        status: order.status,
+                        createdAt: order.createdAt,
+                        amount: (order.amountUsdc * 1_000_000),
+                        fee: Math.round((order.amountUsdc * 1_000_000) * 250 / 10_000),
+                        riskScore: order.riskScore,
+                      }} />
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
-            {orders.length === 0 ? (
-              <div className="text-center py-20 text-white/30">
-                <Package size={48} className="mx-auto mb-4 opacity-40" />
-                <p className="text-lg">No orders yet</p>
-                <p className="text-sm mt-2">Your on-chain orders will appear here</p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {orders.map(order => (
-                  <OrderCard
-                    key={order.id}
-                    order={order}
-                    onDispute={() => handleDispute(order.id)}
-                    onRelease={handleReleaseEscrow}
-                    loading={txLoading && disputingOrderId === order.id}
-                    // releasingOrderId={releasingOrderId}
-                  />
-                ))}
-              </div>
-            )}
+            {/* Protocol Configuration */}
+            <ProtocolConfigCard />
           </motion.div>
         )}
 
