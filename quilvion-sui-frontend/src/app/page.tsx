@@ -299,7 +299,10 @@ export default function BuyerDashboard() {
             ))}
           </div>
 
-          <ConnectButton />
+          <div className="flex items-center gap-2">
+            {account && <MintUsdc />}
+            <ConnectButton />
+          </div>
         </div>
       </header>
 
@@ -345,6 +348,11 @@ export default function BuyerDashboard() {
         {/* ── BROWSE TAB ── */}
         {account && tab === 'browse' && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+            {/* Mint USDC Widget */}
+            <div className="mb-8">
+              <MintUsdc />
+            </div>
+
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8">
               {[
                 { label: 'Products', value: products.length, icon: ShoppingBag, color: '#4DA2FF' },
