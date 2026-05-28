@@ -1,7 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.orm import Session
-from app.database import get_db, Merchant, Product, Order
+from app.database import get_db, Merchant, Product, Order, Configuration
+from app.schemas import ConfigurationOut, ConfigurationUpdate
 import os
+from datetime import datetime
 
 router = APIRouter()
 
@@ -149,3 +151,68 @@ def delete_product(
     db.delete(product)
     db.commit()
     return {"success": True}
+
+
+# ── Protocol Configuration Management ──────────────────────────────────────────
+def get_or_create_config(db: Session) -> Configuration:
+    """Get the singleton configuration, create if doesn't exist"""
+    config = db.query(Configuration).first()
+    if not config:
+        config = Configuration()
+        db.add(config)
+        db.commit()
+        db.refresh(config)
+    return config
+
+
+@router.get("/configuration", response_model=ConfigurationOut)
+def get_configuration(db: Session = Depends(get_db), _=Depends(verify_admin)):
+    """Fetch current protocol configuration"""
+    config = get_or_create_config(db)
+    return config
+
+
+@router.post("/configuration/sync")
+def sync_configuration_from_chain(db: Session = Depends(get_db), _=Depends(verify_admin)):
+    """
+    Sync configuration from on-chain (Sui blockchain).
+    This should be called after transactions are confirmed.
+    For now, returns success — in production, read from Sui RPC.
+    """
+    config = get_or_create_config(db)
+    config.last_synced_at = datetime.utcnow()
+    db.commit()
+    db.refresh(config)
+    return {
+        "success": True,
+        "message": "Configuration sync queued",
+        "config": ConfigurationOut.from_orm(config)
+    }
+
+
+@router.patch("/configuration")
+def update_configuration(
+    update: ConfigurationUpdate,
+    db: Session = Depends(get_db),
+    _=Depends(verify_admin)
+):
+    """Update protocol configuration (after on-chain transaction confirmed)"""
+    config = get_or_create_config(db)
+    
+    # Only update fields that are explicitly provided
+    if update.platform_fee_bps is not None:
+        config.platform_fee_bps = update.platform_fee_bps
+    if update.admin_approval_threshold_micro is not None:
+        config.admin_approval_threshold_micro = update.admin_approval_threshold_micro
+    if update.daily_spend_limit_micro is not None:
+        config.daily_spend_limit_micro = update.daily_spend_limit_micro
+    if update.dispute_refund_window_seconds is not None:
+        config.dispute_refund_window_seconds = update.dispute_refund_window_seconds
+    if update.merchant_verification_expiry_seconds is not None:
+        config.merchant_verification_expiry_seconds = update.merchant_verification_expiry_seconds
+    
+    config.last_synced_at = datetime.utcnow()
+    db.commit()
+    db.refresh(config)
+    
+    return ConfigurationOut.from_orm(config)

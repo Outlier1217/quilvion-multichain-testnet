@@ -59,3 +59,27 @@ class ProductOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class ConfigurationOut(BaseModel):
+    """Protocol configuration parameters"""
+    id: int
+    platform_fee_bps: int
+    admin_approval_threshold_micro: int
+    daily_spend_limit_micro: int
+    dispute_refund_window_seconds: int
+    merchant_verification_expiry_seconds: int
+    last_synced_at: Optional[datetime]
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class ConfigurationUpdate(BaseModel):
+    """Update configuration parameters"""
+    platform_fee_bps: Optional[int] = None
+    admin_approval_threshold_micro: Optional[int] = None
+    daily_spend_limit_micro: Optional[int] = None
+    dispute_refund_window_seconds: Optional[int] = None
+    merchant_verification_expiry_seconds: Optional[int] = None

@@ -95,6 +95,19 @@ class BuyerProfile(Base):
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
 
 
+class Configuration(Base):
+    __tablename__ = "configuration"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    platform_fee_bps = Column(Integer, default=250)  # basis points (250 = 2.5%)
+    admin_approval_threshold_micro = Column(Integer, default=500000000)  # 500 USDC in micro-units
+    daily_spend_limit_micro = Column(Integer, default=1000000000)  # 1000 USDC in micro-units
+    dispute_refund_window_seconds = Column(Integer, default=604800)  # 7 days in seconds
+    merchant_verification_expiry_seconds = Column(Integer, default=31536000)  # 1 year in seconds
+    last_synced_at = Column(DateTime, nullable=True)  # When last synced from on-chain
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
 def get_db():
