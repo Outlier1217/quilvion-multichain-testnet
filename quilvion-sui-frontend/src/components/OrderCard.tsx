@@ -109,8 +109,8 @@ export function OrderCard({
         </div>
       </div>
 
-      {/* ── DELIVERY INFO — only when COMPLETED and deliveryInfo exists ── */}
-      {order.status === 'COMPLETED' && order.deliveryInfo && (
+      {/* ── DELIVERY INFO — only when order completed and deliveryInfo exists ── */}
+      {(order.status === 'COMPLETED' || order.status === 'ESCROW_RELEASED' || order.status === 'REFUNDED') && order.deliveryInfo && (
         <motion.div
           initial={{ opacity: 0, y: 6 }}
           animate={{ opacity: 1, y: 0 }}
@@ -149,8 +149,8 @@ export function OrderCard({
         </motion.div>
       )}
 
-      {/* ── COMPLETED but no delivery info ── */}
-      {order.status === 'COMPLETED' && !order.deliveryInfo && (
+      {/* ── Completed without delivery info ── */}
+      {(order.status === 'COMPLETED' || order.status === 'ESCROW_RELEASED' || order.status === 'REFUNDED') && !order.deliveryInfo && (
         <div className="mt-3 p-3 rounded-xl border border-white/5"
           style={{ background: 'rgba(255,255,255,0.02)' }}>
           <div className="flex items-center gap-1.5 text-[10px] text-white/30">
@@ -172,18 +172,25 @@ export function OrderCard({
       )}
 
       {/* ── COMPLETED actions ── */}
-      {order.status === 'COMPLETED' && (
+      {(order.status === 'COMPLETED' || order.status === 'ESCROW_RELEASED' || order.status === 'REFUNDED') && (
         <div className="mt-4 pt-4 border-t border-white/5 flex flex-col sm:flex-row gap-2">
-          <button
-            onClick={handleAccessOrder}
-            disabled={!order.deliveryInfo}
-            className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90"
-            style={{ background: 'linear-gradient(135deg,#4DA2FF,#6366f1)', color: '#fff' }}>
-            <ExternalLink size={14} />
-            {order.deliveryInfo
-              ? (accessCopied ? 'Access Info Copied' : 'Access Order')
-              : 'Access Pending'}
-          </button>
+          {order.deliveryInfo ? (
+            <button
+              onClick={handleAccessOrder}
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all hover:opacity-90"
+              style={{ background: 'linear-gradient(135deg,#4DA2FF,#6366f1)', color: '#fff' }}>
+              <ExternalLink size={14} />
+              {accessCopied ? 'Access Info Copied' : 'Access Order'}
+            </button>
+          ) : (
+            <button
+              disabled
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all opacity-50 cursor-not-allowed"
+              style={{ background: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.4)' }}>
+              <ExternalLink size={14} />
+              Awaiting Merchant Info
+            </button>
+          )}
 
           <button
             onClick={onDispute}

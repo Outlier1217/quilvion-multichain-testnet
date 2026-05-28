@@ -3,6 +3,9 @@
 
 import { API_BASE, SUI_CONFIG } from "./sui/constants";
 
+// Use API_BASE from constants to ensure consistency
+const API = API_BASE;
+
 // ── Risk Score (ML — fast) ────────────────────────────────────────────────────
 export async function getRiskScore(params: {
   orderId: string;
@@ -149,8 +152,6 @@ export async function createOrderRecord(data: {
   return res.json();
 }
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-
 // Merchant register
 export async function registerMerchant(data: {
   wallet_address: string;
@@ -210,9 +211,21 @@ export async function fetchProducts(category?: string) {
   const url = category && category !== "All"
     ? `${API}/api/buyer/products?category=${encodeURIComponent(category)}`
     : `${API}/api/buyer/products`;
+  
+  console.log('[fetchProducts] Calling:', url);
+  
   const res = await fetch(url);
-  if (!res.ok) throw new Error("Failed to fetch products");
+  
+  console.log('[fetchProducts] Response status:', res.status);
+  
+  if (!res.ok) {
+    const errorText = await res.text();
+    console.error('[fetchProducts] Error response:', errorText.substring(0, 200));
+    throw new Error(`Failed to fetch products (${res.status}): ${errorText.substring(0, 100)}`);
+  }
+  
   const data = await res.json();
+  console.log('[fetchProducts] Got data:', data.length, 'products');
 
   return data.map((p: any) => ({
     id: p.id,
@@ -258,21 +271,47 @@ export async function fetchBuyerOrders(walletAddress: string) {
   if (!walletAddress) return [];
 
   try {
-    const backendOrdersRes = await fetch(`${API}/api/orders/buyer/${walletAddress}`);
-    const backendOrders = backendOrdersRes.ok ? await backendOrdersRes.json() : [];
+    // Fetch backend orders with timeout
+    let backendOrders: any[] = [];
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+      
+      const backendOrdersRes = await fetch(`${API}/api/orders/buyer/${walletAddress}`, {
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+      
+      if (backendOrdersRes.ok) {
+        backendOrders = await backendOrdersRes.json();
+      } else {
+        console.warn(`Backend orders fetch returned ${backendOrdersRes.status}: ${backendOrdersRes.statusText}`);
+      }
+    } catch (fetchErr: any) {
+      console.warn('Failed to fetch backend orders:', fetchErr.message);
+      // Continue with blockchain data only if backend fails
+    }
+
     const backendOrdersById = new Map<number, any>(
       backendOrders.map((order: any) => [Number(order.id), order])
     );
 
-    // 1. Get all relevant events
-    const query = (type: string) => fetch('https://fullnode.testnet.sui.io:443', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0', id: 1, method: 'suix_queryEvents',
-        params: [{ MoveEventType: `${SUI_CONFIG.PACKAGE_ID}::events::${type}` }, null, 50, true]
+    // 1. Get all relevant events from blockchain
+    const query = (type: string) => 
+      fetch('https://fullnode.testnet.sui.io:443', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0', id: 1, method: 'suix_queryEvents',
+          params: [{ MoveEventType: `${SUI_CONFIG.PACKAGE_ID}::events::${type}` }, null, 50, true]
+        })
       })
-    }).then(r => r.json()).then(d => d?.result?.data ?? []);
+      .then(r => r.json())
+      .then(d => d?.result?.data ?? [])
+      .catch(err => {
+        console.warn(`Failed to fetch ${type} events:`, err.message);
+        return [];
+      });
 
     const [created, completed, disputed, resolved, riskSet] = await Promise.all([
       query('OrderCreated'),
@@ -283,7 +322,10 @@ export async function fetchBuyerOrders(walletAddress: string) {
     ]);
 
     // 2. Fetch all products to match names
-    const allProducts = await fetchProducts().catch(() => []);
+    const allProducts = await fetchProducts().catch(err => {
+      console.warn('Failed to fetch products:', err.message);
+      return [];
+    });
 
     // 3. Process orders
     const myOrders = created
@@ -317,7 +359,7 @@ export async function fetchBuyerOrders(walletAddress: string) {
           productId: Number(productId),
           productName: backendOrder?.product_name || product?.name || `Order #${orderId}`,
           amountUsdc: Number(e.parsedJson?.amount ?? 0) / 1_000_000,
-          status: backendOrder?.status || status,
+          status: status || backendOrder?.status,  // ✅ BLOCKCHAIN STATUS takes priority
           riskScore,
           createdAt: new Date(Number(e.timestampMs)).toISOString().split('T')[0],
           txDigest: e.id?.txDigest ?? '',
@@ -326,10 +368,65 @@ export async function fetchBuyerOrders(walletAddress: string) {
         };
       });
 
-    return myOrders.sort((a: any, b: any) => b.id - a.id);
-  } catch (err) {
-    console.error("fetchBuyerOrders error:", err);
+    const sorted = myOrders.sort((a: any, b: any) => b.id - a.id);
+
+    // Automatic sync: if blockchain shows COMPLETED but backend still PENDING, ask backend to sync
+    try {
+      sorted.forEach(async (o: any) => {
+        const backend = backendOrdersById.get(Number(o.id));
+        if (o.status === 'COMPLETED' && backend && backend.status !== 'COMPLETED') {
+          fetch(`${API}/api/orders/sync-status`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ order_id: o.id, status: 'COMPLETED', wallet: walletAddress }),
+          }).catch(err => console.warn('Auto-sync failed:', err));
+        }
+      });
+    } catch (e) {
+      // ignore
+    }
+
+    return sorted;
+  } catch (err: any) {
+    console.error("fetchBuyerOrders error:", err.message || err);
+    // Return empty array as fallback - user can still see UI without errors
     return [];
+  }
+}
+
+export async function fetchBuyerStats(walletAddress: string) {
+  if (!walletAddress) return null;
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+    
+    const res = await fetch(`${API}/api/buyer/stats/${walletAddress}`, {
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    
+    if (!res.ok) {
+      console.warn(`Stats fetch returned ${res.status}: ${res.statusText}`);
+      return null;
+    }
+    return res.json();
+  } catch (err: any) {
+    console.warn("fetchBuyerStats error:", err.message || err);
+    return null;
+  }
+}
+
+export async function fetchMerchantStats(walletAddress: string) {
+  if (!walletAddress) return null;
+
+  try {
+    const res = await fetch(`${API}/api/merchant/stats/${walletAddress}`);
+    if (!res.ok) return null;
+    return res.json();
+  } catch (err) {
+    console.error("fetchMerchantStats error:", err);
+    return null;
   }
 }
 

@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 from app.database import get_db, Merchant, Product, Order
 from app.schemas import MerchantCreate, MerchantOut, ProductCreate
+from app.encrypt import encrypt_delivery_info
 from pydantic import BaseModel
 import cloudinary
 import cloudinary.uploader
@@ -17,8 +18,15 @@ cloudinary.config(
 )
 
 
-def _product_to_dict(p: Product) -> dict:
-    return {
+def _product_to_dict(p: Product, include_encrypted_delivery: bool = False) -> dict:
+    """
+    Convert Product to dict
+    
+    Args:
+        p: Product model instance
+        include_encrypted_delivery: If True, include encrypted delivery_info (for merchant/admin only)
+    """
+    result = {
         "id": p.id,
         "merchant_wallet": p.merchant_wallet,
         "merchant_name": p.merchant_name,
@@ -29,7 +37,6 @@ def _product_to_dict(p: Product) -> dict:
         "emoji": p.emoji,
         "tags": [t.strip() for t in p.tags.split(",") if t.strip()] if p.tags else [],
         "images": [i.strip() for i in p.images.split(",") if i.strip()] if p.images else [],
-        "delivery_info": p.delivery_info,
         "status": p.status,
         "rating": p.rating,
         "review_count": p.review_count,
@@ -37,6 +44,14 @@ def _product_to_dict(p: Product) -> dict:
         "merchant_success_rate": p.merchant_success_rate,
         "created_at": str(p.created_at),
     }
+    
+    # Only include encrypted delivery_info for merchants/admins, not for public marketplace
+    if include_encrypted_delivery:
+        result["delivery_info"] = p.delivery_info
+    else:
+        result["delivery_info"] = None  # Hidden from public view
+    
+    return result
 
 
 # ── Image upload ───────────────────────────────────────────────────────────────
@@ -103,6 +118,9 @@ def add_product(data: ProductCreate, db: Session = Depends(get_db)):
     if merchant.status != "approved":
         raise HTTPException(status_code=403, detail="Merchant is not approved yet")
 
+    # Encrypt delivery info before storing
+    encrypted_delivery_info = encrypt_delivery_info(data.delivery_info)
+
     product = Product(
         merchant_wallet=data.merchant_wallet,
         merchant_name=merchant.company_name,
@@ -113,7 +131,7 @@ def add_product(data: ProductCreate, db: Session = Depends(get_db)):
         emoji=data.emoji,
         tags=",".join(data.tags),
         images=",".join(data.images),   # ← NAYA
-        delivery_info=data.delivery_info,
+        delivery_info=encrypted_delivery_info,  # ← ENCRYPTED
         status="pending",
     )
     db.add(product)
@@ -128,7 +146,7 @@ def get_merchant_products(wallet_address: str, db: Session = Depends(get_db)):
     products = db.query(Product).filter(
         Product.merchant_wallet == wallet_address
     ).order_by(Product.created_at.desc()).all()
-    return [_product_to_dict(p) for p in products]
+    return [_product_to_dict(p, include_encrypted_delivery=True) for p in products]
 
 
 # ── Admin: product status update ───────────────────────────────────────────────
@@ -168,7 +186,8 @@ def edit_product(product_id: int, data: ProductCreate, db: Session = Depends(get
     product.emoji        = data.emoji
     product.tags         = ",".join(data.tags)
     product.images       = ",".join(data.images)
-    product.delivery_info = data.delivery_info
+    # Encrypt delivery info before storing
+    product.delivery_info = encrypt_delivery_info(data.delivery_info)
     db.commit()
     return {"success": True, "product_id": product_id}
 

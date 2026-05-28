@@ -13,13 +13,43 @@ const SUGGESTIONS = [
 
 interface Message { role: 'user' | 'assistant'; content: string; products?: any[]; }
 
+const STORAGE_KEY = 'quilvion-chat-history';
+
 export function BuyerChat({ walletAddress }: { walletAddress: string }) {
   const [messages, setMessages] = useState<Message[]>([
     { role: 'assistant', content: "Hi! I'm Quilvion's AI assistant. Ask me anything about products, escrow, or disputes." }
   ]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [isHydrated, setIsHydrated] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  // Load messages from localStorage on mount
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const stored = localStorage.getItem(STORAGE_KEY);
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          setMessages(parsed);
+        }
+      } catch (e) {
+        console.warn('Failed to load chat history:', e);
+      }
+      setIsHydrated(true);
+    }
+  }, []);
+
+  // Save messages to localStorage whenever they change
+  useEffect(() => {
+    if (typeof window !== 'undefined' && isHydrated) {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(messages));
+      } catch (e) {
+        console.warn('Failed to save chat history:', e);
+      }
+    }
+  }, [messages, isHydrated]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
