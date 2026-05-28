@@ -14,6 +14,14 @@ export function buildCreateOrder(
   amountUsdc: number,        // display value e.g. 50.0
   usdcCoinObjectId: string,  // Coin<USDC> object owned by buyer
 ) {
+  // Convert display USDC to micro-units (6 decimals)
+  const amountMicroUnits = toUsdc(amountUsdc);
+
+  // CRITICAL: Split coin to exact amount before passing to contract
+  const [coin] = tx.splitCoins(tx.object(usdcCoinObjectId), [
+    tx.pure.u64(amountMicroUnits),
+  ]);
+
   tx.moveCall({
     target: `${PKG}::commerce_core::create_order`,
     arguments: [
@@ -25,7 +33,7 @@ export function buildCreateOrder(
       tx.pure.u64(productId),
       tx.pure.address(merchantWallet),
       tx.pure.u8(0),  // PRODUCT_TYPE_DIGITAL
-      tx.object(usdcCoinObjectId),
+      coin,  // Use only the split coin (exact amount needed)
       tx.object(SUI_CONFIG.CLOCK),
     ],
   });
@@ -68,6 +76,19 @@ export function buildReleaseEscrow(tx: Transaction, orderId: number) {
       tx.object(SUI_CONFIG.CONFIG_MANAGER),
       tx.object(SUI_CONFIG.ROLE_MANAGER),
       tx.pure.u64(orderId),
+      tx.object(SUI_CONFIG.CLOCK),
+    ],
+  });
+}
+
+// ── deliver_digital_product (Merchant provides delivery info) ──────────────────
+export function buildDeliverDigitalProduct(tx: Transaction, orderId: number, deliveryInfo: string) {
+  tx.moveCall({
+    target: `${SUI_CONFIG.PACKAGE_ID}::commerce_core::deliver_digital_product`,
+    arguments: [
+      tx.object(SUI_CONFIG.COMMERCE_CORE),
+      tx.pure.u64(orderId),
+      tx.pure.string(deliveryInfo),
       tx.object(SUI_CONFIG.CLOCK),
     ],
   });
