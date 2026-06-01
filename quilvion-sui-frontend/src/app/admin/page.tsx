@@ -5,14 +5,26 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Shield, Package, Store, CheckCircle, XCircle,
   Clock, BarChart3, Eye, Trash2, RefreshCw, Lock,
-  AlertTriangle, Scale, Settings
+  AlertTriangle, Scale, Settings, Edit2, X
 } from 'lucide-react';
 import { ConnectButton, useSignAndExecuteTransaction, useCurrentAccount } from '@mysten/dapp-kit';
 import { Transaction } from '@mysten/sui/transactions';
 import { buildCreateOrder, buildCancelOrder, buildRaiseDispute, buildReleaseEscrow } from '@/lib/sui/transactions';
+import {
+  buildSetPlatformFee,
+  buildSetDailySpendLimit,
+  buildSetAdminApprovalThreshold,
+  buildSetRefundWindow,
+  buildSetVerificationExpiry,
+  usdcToMicro,
+  daysToSeconds,
+  describeConfig,
+} from '@/lib/sui/configTransactions';
+import { readConfigFromChain, formatConfigDisplay, configsMatch, type OnChainConfig } from '@/lib/sui/readConfig';
 import { fetchMerchantOrders } from '@/lib/api';
+import { API_BASE } from '@/lib/sui/constants';
 
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const API = API_BASE;
 const ADMIN_WALLET = '0x8bc4555d0f1c8365fd377e9823f993b59b90b62e5eb375db084112f2e29711fa';
 
 // ── Admin auth ─────────────────────────────────────────────────────────────────
@@ -24,17 +36,22 @@ function useAdminApi() {
     'x-admin-secret': ADMIN_SECRET,
   };
 
-  const get = (path: string) =>
-    fetch(`${API}/api/admin${path}`, { headers }).then(r => r.json());
+  const request = async (path: string, init?: RequestInit) => {
+    const res = await fetch(`${API}/api/admin${path}`, {
+      ...init,
+      headers,
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`Admin API error ${res.status}: ${text || res.statusText}`);
+    }
+    return res.json();
+  };
 
+  const get = (path: string) => request(path);
   const patch = (path: string, body: object) =>
-    fetch(`${API}/api/admin${path}`, {
-      method: 'PATCH', headers,
-      body: JSON.stringify(body),
-    }).then(r => r.json());
-
-  const del = (path: string) =>
-    fetch(`${API}/api/admin${path}`, { method: 'DELETE', headers }).then(r => r.json());
+    request(path, { method: 'PATCH', body: JSON.stringify(body) });
+  const del = (path: string) => request(path, { method: 'DELETE' });
 
   return { get, patch, del };
 }
@@ -65,6 +82,20 @@ export default function AdminPanel() {
   const [pendingOrders, setPendingOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [txLoading, setTxLoading] = useState(false);
+  
+  // Config edit states
+  const [editingConfig, setEditingConfig] = useState<string | null>(null);
+  const [configValues, setConfigValues] = useState({
+    platformFee: 250,
+    dailySpendLimit: 1000,
+    approvalThreshold: 500,
+    refundWindow: 7,
+    verificationExpiry: 1,
+  });
+  const [onChainConfig, setOnChainConfig] = useState<OnChainConfig | null>(null);
+  const [isSynced, setIsSynced] = useState(true);
+  const [loadingOnChain, setLoadingOnChain] = useState(false);
+  
   const account = useCurrentAccount();
   const { mutate: signAndExecute } = useSignAndExecuteTransaction();
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
@@ -92,14 +123,51 @@ export default function AdminPanel() {
   const loadAll = async () => {
     setLoading(true);
     try {
-      const [s, m, p] = await Promise.all([
+      const [s, m, p, cfg] = await Promise.all([
         api.get('/stats'),
         api.get('/merchants'),
         api.get('/products'),
+        api.get('/configuration'),
       ]);
       setStats(s);
       setMerchants(m);
       setProducts(p);
+      
+      // Load configuration from database
+      if (cfg) {
+        setConfigValues({
+          platformFee: cfg.platform_fee_bps,
+          dailySpendLimit: cfg.daily_spend_limit_micro / 1_000_000, // Convert from micro-USDC
+          approvalThreshold: cfg.admin_approval_threshold_micro / 1_000_000, // Convert from micro-USDC
+          refundWindow: cfg.dispute_refund_window_seconds / 86_400, // Convert from seconds to days
+          verificationExpiry: cfg.merchant_verification_expiry_seconds / 31_536_000, // Convert from seconds to years
+        });
+      }
+      
+      // Load on-chain config
+      setLoadingOnChain(true);
+      try {
+        const chainConfig = await readConfigFromChain();
+        setOnChainConfig(chainConfig);
+        
+        // Check if synced
+        if (chainConfig && cfg) {
+          const synced = configsMatch(
+            chainConfig,
+            cfg.platform_fee_bps,
+            cfg.admin_approval_threshold_micro,
+            cfg.daily_spend_limit_micro,
+            cfg.dispute_refund_window_seconds,
+            cfg.merchant_verification_expiry_seconds
+          );
+          setIsSynced(synced);
+        }
+      } catch (err) {
+        console.error('Failed to load on-chain config:', err);
+      } finally {
+        setLoadingOnChain(false);
+      }
+      
       const orders = await api.get('/orders/pending');
       setPendingOrders(Array.isArray(orders) ? orders : []);
     } catch {
@@ -184,7 +252,80 @@ export default function AdminPanel() {
     }
   };
 
-  // Platform fee update functionality would go here when buildUpdatePlatformFee is available
+  const updateConfigOnChain = async (configType: string) => {
+    if (!account) {
+      showToast('Wallet not connected', false);
+      return;
+    }
+
+    setTxLoading(true);
+    try {
+      const tx = new Transaction();
+
+      switch (configType) {
+        case 'platformFee':
+          buildSetPlatformFee(tx, configValues.platformFee);
+          break;
+        case 'dailySpendLimit':
+          buildSetDailySpendLimit(tx, usdcToMicro(configValues.dailySpendLimit));
+          break;
+        case 'approvalThreshold':
+          buildSetAdminApprovalThreshold(tx, usdcToMicro(configValues.approvalThreshold));
+          break;
+        case 'refundWindow':
+          buildSetRefundWindow(tx, daysToSeconds(configValues.refundWindow));
+          break;
+        case 'verificationExpiry':
+          buildSetVerificationExpiry(tx, configValues.verificationExpiry * 31536000);
+          break;
+      }
+
+      signAndExecute(
+        { transaction: tx },
+        {
+          onSuccess: async () => {
+            showToast(`Configuration updated on-chain!`);
+            setEditingConfig(null);
+            setTxLoading(false);
+            
+            // Update database with new values
+            try {
+              const updatePayload: any = {};
+              
+              switch (configType) {
+                case 'platformFee':
+                  updatePayload.platform_fee_bps = configValues.platformFee;
+                  break;
+                case 'dailySpendLimit':
+                  updatePayload.daily_spend_limit_micro = usdcToMicro(configValues.dailySpendLimit);
+                  break;
+                case 'approvalThreshold':
+                  updatePayload.admin_approval_threshold_micro = usdcToMicro(configValues.approvalThreshold);
+                  break;
+                case 'refundWindow':
+                  updatePayload.dispute_refund_window_seconds = daysToSeconds(configValues.refundWindow);
+                  break;
+                case 'verificationExpiry':
+                  updatePayload.merchant_verification_expiry_seconds = configValues.verificationExpiry * 31536000;
+                  break;
+              }
+              
+              await api.patch('/configuration', updatePayload);
+            } catch (err) {
+              console.error('Failed to update database:', err);
+            }
+          },
+          onError: (err) => {
+            showToast(`Error: ${err.message}`, false);
+            setTxLoading(false);
+          }
+        }
+      );
+    } catch (err: any) {
+      showToast(`Failed: ${err.message}`, false);
+      setTxLoading(false);
+    }
+  };
 
   // ── Gate screen for non-admin wallets ────────────────────────────────────────
   if (!authed) {
@@ -410,6 +551,25 @@ export default function AdminPanel() {
         {tab === 'stats' && stats && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
             <h2 className="text-xl font-black">Platform Overview</h2>
+            
+            {/* Protocol Summary */}
+            <div className="p-6 rounded-2xl border border-blue-500/20 bg-blue-500/5">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+                <div>
+                  <p className="text-blue-300/60 mb-1">Network</p>
+                  <p className="text-white/80 font-semibold">Sui Testnet</p>
+                </div>
+                <div>
+                  <p className="text-blue-300/60 mb-1">Token</p>
+                  <p className="text-white/80 font-semibold">USDC (6 decimals)</p>
+                </div>
+                <div>
+                  <p className="text-blue-300/60 mb-1">Package ID</p>
+                  <p className="text-white/80 font-mono text-[10px] break-all">0xb6ee5d9...384a2c4</p>
+                </div>
+              </div>
+            </div>
+
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               {[
                 { label: 'Total Merchants', value: stats.merchants.total, color: '#4DA2FF', icon: Store },
@@ -451,6 +611,34 @@ export default function AdminPanel() {
                 </div>
               </div>
             )}
+
+            {/* Protocol Features */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="p-4 rounded-2xl border border-white/5 bg-white/2">
+                <h3 className="text-sm font-bold text-white mb-2 flex items-center gap-2">
+                  <Shield size={14} /> Core Features
+                </h3>
+                <ul className="text-xs text-white/60 space-y-1">
+                  <li>✓ USDC Escrow Locking</li>
+                  <li>✓ Role-Based Access Control</li>
+                  <li>✓ Configurable Platform Fees</li>
+                  <li>✓ Dispute Resolution System</li>
+                  <li>✓ AI Fraud Scoring (BOT)</li>
+                  <li>✓ Reputation & Badges</li>
+                </ul>
+              </div>
+              <div className="p-4 rounded-2xl border border-white/5 bg-white/2">
+                <h3 className="text-sm font-bold text-white mb-2 flex items-center gap-2">
+                  <Scale size={14} /> Fee Model
+                </h3>
+                <ul className="text-xs text-white/60 space-y-1">
+                  <li>Platform Fee: <span className="text-white/80 font-semibold">2.5%</span> (250 bps)</li>
+                  <li>Threshold: <span className="text-white/80 font-semibold">500 USDC</span> (admin release)</li>
+                  <li>Daily Spend Cap: <span className="text-white/80 font-semibold">1,000 USDC</span></li>
+                  <li>Dispute Window: <span className="text-white/80 font-semibold">7 days</span></li>
+                </ul>
+              </div>
+            </div>
           </motion.div>
         )}
 
@@ -667,18 +855,702 @@ export default function AdminPanel() {
         {tab === 'config' && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
             <h2 className="text-xl font-black">Protocol Configuration</h2>
+            <div className="p-4 rounded-2xl border border-blue-500/20 bg-blue-500/5">
+              <p className="text-xs text-blue-300 flex items-center gap-2">
+                <AlertTriangle size={12} /> Click Edit to update parameters directly on-chain
+              </p>
+            </div>
+            
+            {/* Sync Status */}
+            <div className={`p-4 rounded-2xl border flex items-center justify-between ${
+              isSynced 
+                ? 'border-emerald-500/20 bg-emerald-500/5' 
+                : 'border-rose-500/20 bg-rose-500/5'
+            }`}>
+              <div className="flex items-center gap-2">
+                {isSynced ? (
+                  <>
+                    <CheckCircle size={16} className="text-emerald-400" />
+                    <span className="text-xs text-emerald-300">✓ Database & On-Chain Synced</span>
+                  </>
+                ) : (
+                  <>
+                    <AlertTriangle size={16} className="text-rose-400" />
+                    <span className="text-xs text-rose-300">⚠ Database & On-Chain Out of Sync</span>
+                  </>
+                )}
+              </div>
+              <button
+                onClick={() => loadAll()}
+                disabled={loading || loadingOnChain}
+                className="p-1 rounded-lg hover:bg-white/5 transition-all disabled:opacity-50"
+              >
+                <RefreshCw size={14} className={`${loadingOnChain ? 'animate-spin' : ''} text-white/40`} />
+              </button>
+            </div>
+            
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Platform Fee */}
+              <div className="p-6 rounded-2xl border border-white/5 bg-white/2">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    <Settings size={18} className="text-amber-400" />
+                    <h3 className="font-bold text-white">Platform Fee</h3>
+                  </div>
+                  <button
+                    onClick={() => setEditingConfig('platformFee')}
+                    className="p-2 rounded-lg hover:bg-white/5 transition-all"
+                    title="Edit"
+                  >
+                    <Edit2 size={14} className="text-white/40 hover:text-amber-400" />
+                  </button>
+                </div>
+                <div className="space-y-3">
+                  <div>
+                    <p className="text-xs text-white/40 mb-2">Database Value</p>
+                    <p className="text-2xl font-black text-amber-300">{(configValues.platformFee / 100).toFixed(2)}%</p>
+                    <p className="text-xs text-white/30">{configValues.platformFee} basis points</p>
+                  </div>
+                  {onChainConfig && (
+                    <div className="pt-3 border-t border-white/10">
+                      <p className="text-xs text-white/40 mb-2">On-Chain Value</p>
+                      <p className="text-2xl font-black text-amber-200">{(onChainConfig.platformFeeBps / 100).toFixed(2)}%</p>
+                      <p className="text-xs text-white/30">{onChainConfig.platformFeeBps} basis points</p>
+                      {onChainConfig.platformFeeBps === configValues.platformFee && (
+                        <span className="text-[10px] text-emerald-400 mt-1 inline-block">✓ Synced</span>
+                      )}
+                    </div>
+                  )}
+                  <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                    <p className="text-xs text-amber-300">
+                      Deducted on settlement. Example: 150 USDC order → 3.75 USDC fee, 146.25 USDC merchant payout
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Admin Approval Threshold */}
+              <div className="p-6 rounded-2xl border border-white/5 bg-white/2">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    <Shield size={18} className="text-purple-400" />
+                    <h3 className="font-bold text-white">Admin Approval Threshold</h3>
+                  </div>
+                  <button
+                    onClick={() => setEditingConfig('approvalThreshold')}
+                    className="p-2 rounded-lg hover:bg-white/5 transition-all"
+                    title="Edit"
+                  >
+                    <Edit2 size={14} className="text-white/40 hover:text-purple-400" />
+                  </button>
+                </div>
+                <div className="space-y-3">
+                  <div>
+                    <p className="text-xs text-white/40 mb-2">Database Value</p>
+                    <p className="text-2xl font-black text-purple-300">{configValues.approvalThreshold.toLocaleString()} USDC</p>
+                    <p className="text-xs text-white/30">{(configValues.approvalThreshold * 1_000_000).toLocaleString()} micro-units</p>
+                  </div>
+                  {onChainConfig && (
+                    <div className="pt-3 border-t border-white/10">
+                      <p className="text-xs text-white/40 mb-2">On-Chain Value</p>
+                      <p className="text-2xl font-black text-purple-200">{(onChainConfig.adminApprovalThresholdMicro / 1_000_000).toLocaleString()} USDC</p>
+                      <p className="text-xs text-white/30">{onChainConfig.adminApprovalThresholdMicro.toLocaleString()} micro-units</p>
+                      {onChainConfig.adminApprovalThresholdMicro === configValues.approvalThreshold * 1_000_000 && (
+                        <span className="text-[10px] text-emerald-400 mt-1 inline-block">✓ Synced</span>
+                      )}
+                    </div>
+                  )}
+                  <div className="p-3 rounded-lg bg-purple-500/10 border border-purple-500/20">
+                    <p className="text-xs text-purple-300">
+                      Orders above this amount require admin release before settlement
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Daily Spend Limit */}
+              <div className="p-6 rounded-2xl border border-white/5 bg-white/2">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    <Clock size={18} className="text-cyan-400" />
+                    <h3 className="font-bold text-white">Daily Spend Limit</h3>
+                  </div>
+                  <button
+                    onClick={() => setEditingConfig('dailySpendLimit')}
+                    className="p-2 rounded-lg hover:bg-white/5 transition-all"
+                    title="Edit"
+                  >
+                    <Edit2 size={14} className="text-white/40 hover:text-cyan-400" />
+                  </button>
+                </div>
+                <div className="space-y-3">
+                  <div>
+                    <p className="text-xs text-white/40 mb-2">Database Value</p>
+                    <p className="text-2xl font-black text-cyan-300">{configValues.dailySpendLimit.toLocaleString()} USDC</p>
+                    <p className="text-xs text-white/30">Per wallet, per 24 hours</p>
+                  </div>
+                  {onChainConfig && (
+                    <div className="pt-3 border-t border-white/10">
+                      <p className="text-xs text-white/40 mb-2">On-Chain Value</p>
+                      <p className="text-2xl font-black text-cyan-200">{(onChainConfig.dailySpendLimitMicro / 1_000_000).toLocaleString()} USDC</p>
+                      <p className="text-xs text-white/30">Per wallet, per 24 hours</p>
+                      {onChainConfig.dailySpendLimitMicro === configValues.dailySpendLimit * 1_000_000 && (
+                        <span className="text-[10px] text-emerald-400 mt-1 inline-block">✓ Synced</span>
+                      )}
+                    </div>
+                  )}
+                  <div className="p-3 rounded-lg bg-cyan-500/10 border border-cyan-500/20">
+                    <p className="text-xs text-cyan-300">
+                      Max USDC a wallet may spend across all orders in 24 hours
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Refund Window */}
+              <div className="p-6 rounded-2xl border border-white/5 bg-white/2">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    <AlertTriangle size={18} className="text-orange-400" />
+                    <h3 className="font-bold text-white">Dispute Refund Window</h3>
+                  </div>
+                  <button
+                    onClick={() => setEditingConfig('refundWindow')}
+                    className="p-2 rounded-lg hover:bg-white/5 transition-all"
+                    title="Edit"
+                  >
+                    <Edit2 size={14} className="text-white/40 hover:text-orange-400" />
+                  </button>
+                </div>
+                <div className="space-y-3">
+                  <div>
+                    <p className="text-xs text-white/40 mb-2">Database Value</p>
+                    <p className="text-2xl font-black text-orange-300">{configValues.refundWindow} Days</p>
+                    <p className="text-xs text-white/30">{(configValues.refundWindow * 86_400).toLocaleString()} seconds</p>
+                  </div>
+                  {onChainConfig && (
+                    <div className="pt-3 border-t border-white/10">
+                      <p className="text-xs text-white/40 mb-2">On-Chain Value</p>
+                      <p className="text-2xl font-black text-orange-200">{(onChainConfig.disputeRefundWindowSeconds / 86_400).toLocaleString()} Days</p>
+                      <p className="text-xs text-white/30">{onChainConfig.disputeRefundWindowSeconds.toLocaleString()} seconds</p>
+                      {onChainConfig.disputeRefundWindowSeconds === configValues.refundWindow * 86_400 && (
+                        <span className="text-[10px] text-emerald-400 mt-1 inline-block">✓ Synced</span>
+                      )}
+                    </div>
+                  )}
+                  <div className="p-3 rounded-lg bg-orange-500/10 border border-orange-500/20">
+                    <p className="text-xs text-orange-300">
+                      Time after order creation during which buyer may raise a dispute
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Merchant Verification Expiry */}
+              <div className="p-6 rounded-2xl border border-white/5 bg-white/2">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    <CheckCircle size={18} className="text-emerald-400" />
+                    <h3 className="font-bold text-white">Verification Expiry</h3>
+                  </div>
+                  <button
+                    onClick={() => setEditingConfig('verificationExpiry')}
+                    className="p-2 rounded-lg hover:bg-white/5 transition-all"
+                    title="Edit"
+                  >
+                    <Edit2 size={14} className="text-white/40 hover:text-emerald-400" />
+                  </button>
+                </div>
+                <div className="space-y-3">
+                  <div>
+                    <p className="text-xs text-white/40 mb-2">Database Value</p>
+                    <p className="text-2xl font-black text-emerald-300">{configValues.verificationExpiry} Year{configValues.verificationExpiry !== 1 ? 's' : ''}</p>
+                    <p className="text-xs text-white/30">{(configValues.verificationExpiry * 31_536_000).toLocaleString()} seconds</p>
+                  </div>
+                  {onChainConfig && (
+                    <div className="pt-3 border-t border-white/10">
+                      <p className="text-xs text-white/40 mb-2">On-Chain Value</p>
+                      <p className="text-2xl font-black text-emerald-200">{(onChainConfig.merchantVerificationExpirySeconds / 31_536_000).toLocaleString()} Year{(onChainConfig.merchantVerificationExpirySeconds / 31_536_000) !== 1 ? 's' : ''}</p>
+                      <p className="text-xs text-white/30">{onChainConfig.merchantVerificationExpirySeconds.toLocaleString()} seconds</p>
+                      {onChainConfig.merchantVerificationExpirySeconds === configValues.verificationExpiry * 31_536_000 && (
+                        <span className="text-[10px] text-emerald-400 mt-1 inline-block">✓ Synced</span>
+                      )}
+                    </div>
+                  )}
+                  <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+                    <p className="text-xs text-emerald-300">
+                      Duration for which a merchant verification badge remains valid
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Treasury Status */}
               <div className="p-6 rounded-2xl border border-white/5 bg-white/2">
                 <div className="flex items-center gap-3 mb-4">
-                  <Settings size={18} className="text-blue-400" />
-                  <h3 className="font-bold text-white">Platform Fee</h3>
+                  <Package size={18} className="text-rose-400" />
+                  <h3 className="font-bold text-white">Treasury Balance</h3>
                 </div>
-                <p className="text-xs text-white/40 mb-4">Current fee: 2.5% (250 bps)</p>
-                <div className="p-4 rounded-lg bg-blue-500/10 border border-blue-500/20">
-                  <p className="text-xs text-blue-300">Fee update functionality coming soon</p>
+                <div className="space-y-3">
+                  <div>
+                    <p className="text-xs text-white/40 mb-1">Accumulated Fees</p>
+                    <p className="text-2xl font-black text-rose-300">—</p>
+                    <p className="text-xs text-white/30 mt-0.5">Live sync coming soon</p>
+                  </div>
+                  <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/20">
+                    <p className="text-xs text-rose-300">
+                      Platform fees accumulate here and can be withdrawn by admins
+                    </p>
+                  </div>
                 </div>
               </div>
             </div>
+
+            {/* Configuration Update Guide */}
+            <div className="p-6 rounded-2xl border border-white/5 bg-white/2">
+              <h3 className="font-bold text-white mb-3 flex items-center gap-2">
+                <Settings size={16} /> How to Update Configuration
+              </h3>
+              <div className="space-y-2 text-xs text-white/60">
+                <p>
+                  Click the Edit button (✏️) on any parameter card to update it directly on-chain via a signed transaction.
+                </p>
+                <p className="mt-3 pt-3 border-t border-white/10">
+                  All updates require <span className="text-blue-300">ADMIN_ROLE</span>. Package ID: <span className="text-white/40 font-mono text-[10px]">0xb6ee5d919c1ea7a727b9d86af1bc9259b4f68584b9feb03432f545f5a384a2c4</span>
+                </p>
+              </div>
+            </div>
+
+            {/* Role Requirements */}
+            <div className="p-6 rounded-2xl border border-white/5 bg-white/2">
+              <h3 className="font-bold text-white mb-3 flex items-center gap-2">
+                <Shield size={16} /> Role-Based Permissions
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                <div className="p-3 rounded-lg bg-blue-500/10 border border-blue-500/20">
+                  <p className="text-blue-300 font-semibold mb-1">DEFAULT_ADMIN_ROLE</p>
+                  <p className="text-blue-300/60">Grant/revoke any role • Deployer privileges</p>
+                </div>
+                <div className="p-3 rounded-lg bg-purple-500/10 border border-purple-500/20">
+                  <p className="text-purple-300 font-semibold mb-1">ADMIN_ROLE</p>
+                  <p className="text-purple-300/60">Update config • Release escrow • Resolve disputes • Withdraw treasury</p>
+                </div>
+                <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                  <p className="text-amber-300 font-semibold mb-1">BOT_ROLE</p>
+                  <p className="text-amber-300/60">Write AI fraud risk scores on orders</p>
+                </div>
+                <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+                  <p className="text-emerald-300 font-semibold mb-1">MERCHANT_ROLE</p>
+                  <p className="text-emerald-300/60">Deliver digital products • Mark orders with verified badge</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Edit Modals */}
+            <AnimatePresence>
+              {/* Platform Fee Modal */}
+              {editingConfig === 'platformFee' && (
+                <motion.div
+                  initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                  className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+                  onClick={() => setEditingConfig(null)}
+                >
+                  <motion.div
+                    initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }}
+                    onClick={(e) => e.stopPropagation()}
+                    className="bg-white/2 border border-white/5 rounded-3xl p-6 max-w-md w-full"
+                  >
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="font-bold text-white flex items-center gap-2">
+                        <Settings size={18} className="text-amber-400" />
+                        Update Platform Fee
+                      </h3>
+                      <button
+                        onClick={() => setEditingConfig(null)}
+                        className="p-1 hover:bg-white/5 rounded-lg transition-all"
+                      >
+                        <X size={18} className="text-white/40" />
+                      </button>
+                    </div>
+                    <div className="space-y-4">
+                      <div>
+                        <label className="text-xs text-white/40 block mb-2">Basis Points (0-10,000)</label>
+                        <input
+                          type="number"
+                          value={configValues.platformFee}
+                          onChange={(e) => setConfigValues({ ...configValues, platformFee: Math.min(10000, Math.max(0, parseInt(e.target.value) || 0)) })}
+                          className="w-full px-3 py-2 rounded-xl bg-black/20 border border-white/10 text-white"
+                          min="0"
+                          max="10000"
+                        />
+                        <p className="text-xs text-white/30 mt-1">
+                          {(configValues.platformFee / 100).toFixed(2)}%
+                        </p>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => setConfigValues({ ...configValues, platformFee: 100 })}
+                          className="flex-1 py-1.5 rounded-lg text-xs font-bold bg-blue-500/10 text-blue-300 hover:bg-blue-500/20"
+                        >
+                          1%
+                        </button>
+                        <button
+                          onClick={() => setConfigValues({ ...configValues, platformFee: 250 })}
+                          className="flex-1 py-1.5 rounded-lg text-xs font-bold bg-blue-500/10 text-blue-300 hover:bg-blue-500/20"
+                        >
+                          2.5%
+                        </button>
+                        <button
+                          onClick={() => setConfigValues({ ...configValues, platformFee: 300 })}
+                          className="flex-1 py-1.5 rounded-lg text-xs font-bold bg-blue-500/10 text-blue-300 hover:bg-blue-500/20"
+                        >
+                          3%
+                        </button>
+                        <button
+                          onClick={() => setConfigValues({ ...configValues, platformFee: 500 })}
+                          className="flex-1 py-1.5 rounded-lg text-xs font-bold bg-blue-500/10 text-blue-300 hover:bg-blue-500/20"
+                        >
+                          5%
+                        </button>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => setEditingConfig(null)}
+                          className="flex-1 py-2 rounded-xl bg-white/5 text-white/40 font-bold hover:bg-white/10"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={() => updateConfigOnChain('platformFee')}
+                          disabled={txLoading}
+                          className="flex-1 py-2 rounded-xl bg-amber-500/15 text-amber-300 font-bold hover:bg-amber-500/25 disabled:opacity-50"
+                        >
+                          {txLoading ? 'Updating...' : 'Update On-Chain'}
+                        </button>
+                      </div>
+                    </div>
+                  </motion.div>
+                </motion.div>
+              )}
+
+              {/* Daily Spend Limit Modal */}
+              {editingConfig === 'dailySpendLimit' && (
+                <motion.div
+                  initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                  className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+                  onClick={() => setEditingConfig(null)}
+                >
+                  <motion.div
+                    initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }}
+                    onClick={(e) => e.stopPropagation()}
+                    className="bg-white/2 border border-white/5 rounded-3xl p-6 max-w-md w-full"
+                  >
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="font-bold text-white flex items-center gap-2">
+                        <Clock size={18} className="text-cyan-400" />
+                        Update Daily Spend Limit
+                      </h3>
+                      <button
+                        onClick={() => setEditingConfig(null)}
+                        className="p-1 hover:bg-white/5 rounded-lg transition-all"
+                      >
+                        <X size={18} className="text-white/40" />
+                      </button>
+                    </div>
+                    <div className="space-y-4">
+                      <div>
+                        <label className="text-xs text-white/40 block mb-2">Daily Limit (USDC)</label>
+                        <input
+                          type="number"
+                          value={configValues.dailySpendLimit}
+                          onChange={(e) => setConfigValues({ ...configValues, dailySpendLimit: Math.max(1, parseInt(e.target.value) || 0) })}
+                          className="w-full px-3 py-2 rounded-xl bg-black/20 border border-white/10 text-white"
+                          min="1"
+                        />
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => setConfigValues({ ...configValues, dailySpendLimit: 500 })}
+                          className="flex-1 py-1.5 rounded-lg text-xs font-bold bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/20"
+                        >
+                          500
+                        </button>
+                        <button
+                          onClick={() => setConfigValues({ ...configValues, dailySpendLimit: 1000 })}
+                          className="flex-1 py-1.5 rounded-lg text-xs font-bold bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/20"
+                        >
+                          1000
+                        </button>
+                        <button
+                          onClick={() => setConfigValues({ ...configValues, dailySpendLimit: 2000 })}
+                          className="flex-1 py-1.5 rounded-lg text-xs font-bold bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/20"
+                        >
+                          2000
+                        </button>
+                        <button
+                          onClick={() => setConfigValues({ ...configValues, dailySpendLimit: 5000 })}
+                          className="flex-1 py-1.5 rounded-lg text-xs font-bold bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/20"
+                        >
+                          5000
+                        </button>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => setEditingConfig(null)}
+                          className="flex-1 py-2 rounded-xl bg-white/5 text-white/40 font-bold hover:bg-white/10"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={() => updateConfigOnChain('dailySpendLimit')}
+                          disabled={txLoading}
+                          className="flex-1 py-2 rounded-xl bg-cyan-500/15 text-cyan-300 font-bold hover:bg-cyan-500/25 disabled:opacity-50"
+                        >
+                          {txLoading ? 'Updating...' : 'Update On-Chain'}
+                        </button>
+                      </div>
+                    </div>
+                  </motion.div>
+                </motion.div>
+              )}
+
+              {/* Approval Threshold Modal */}
+              {editingConfig === 'approvalThreshold' && (
+                <motion.div
+                  initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                  className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+                  onClick={() => setEditingConfig(null)}
+                >
+                  <motion.div
+                    initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }}
+                    onClick={(e) => e.stopPropagation()}
+                    className="bg-white/2 border border-white/5 rounded-3xl p-6 max-w-md w-full"
+                  >
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="font-bold text-white flex items-center gap-2">
+                        <Shield size={18} className="text-purple-400" />
+                        Update Approval Threshold
+                      </h3>
+                      <button
+                        onClick={() => setEditingConfig(null)}
+                        className="p-1 hover:bg-white/5 rounded-lg transition-all"
+                      >
+                        <X size={18} className="text-white/40" />
+                      </button>
+                    </div>
+                    <div className="space-y-4">
+                      <div>
+                        <label className="text-xs text-white/40 block mb-2">Approval Threshold (USDC)</label>
+                        <input
+                          type="number"
+                          value={configValues.approvalThreshold}
+                          onChange={(e) => setConfigValues({ ...configValues, approvalThreshold: Math.max(1, parseInt(e.target.value) || 0) })}
+                          className="w-full px-3 py-2 rounded-xl bg-black/20 border border-white/10 text-white"
+                          min="1"
+                        />
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => setConfigValues({ ...configValues, approvalThreshold: 100 })}
+                          className="flex-1 py-1.5 rounded-lg text-xs font-bold bg-purple-500/10 text-purple-300 hover:bg-purple-500/20"
+                        >
+                          100
+                        </button>
+                        <button
+                          onClick={() => setConfigValues({ ...configValues, approvalThreshold: 500 })}
+                          className="flex-1 py-1.5 rounded-lg text-xs font-bold bg-purple-500/10 text-purple-300 hover:bg-purple-500/20"
+                        >
+                          500
+                        </button>
+                        <button
+                          onClick={() => setConfigValues({ ...configValues, approvalThreshold: 1000 })}
+                          className="flex-1 py-1.5 rounded-lg text-xs font-bold bg-purple-500/10 text-purple-300 hover:bg-purple-500/20"
+                        >
+                          1000
+                        </button>
+                        <button
+                          onClick={() => setConfigValues({ ...configValues, approvalThreshold: 5000 })}
+                          className="flex-1 py-1.5 rounded-lg text-xs font-bold bg-purple-500/10 text-purple-300 hover:bg-purple-500/20"
+                        >
+                          5000
+                        </button>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => setEditingConfig(null)}
+                          className="flex-1 py-2 rounded-xl bg-white/5 text-white/40 font-bold hover:bg-white/10"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={() => updateConfigOnChain('approvalThreshold')}
+                          disabled={txLoading}
+                          className="flex-1 py-2 rounded-xl bg-purple-500/15 text-purple-300 font-bold hover:bg-purple-500/25 disabled:opacity-50"
+                        >
+                          {txLoading ? 'Updating...' : 'Update On-Chain'}
+                        </button>
+                      </div>
+                    </div>
+                  </motion.div>
+                </motion.div>
+              )}
+
+              {/* Refund Window Modal */}
+              {editingConfig === 'refundWindow' && (
+                <motion.div
+                  initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                  className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+                  onClick={() => setEditingConfig(null)}
+                >
+                  <motion.div
+                    initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }}
+                    onClick={(e) => e.stopPropagation()}
+                    className="bg-white/2 border border-white/5 rounded-3xl p-6 max-w-md w-full"
+                  >
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="font-bold text-white flex items-center gap-2">
+                        <AlertTriangle size={18} className="text-orange-400" />
+                        Update Dispute Window
+                      </h3>
+                      <button
+                        onClick={() => setEditingConfig(null)}
+                        className="p-1 hover:bg-white/5 rounded-lg transition-all"
+                      >
+                        <X size={18} className="text-white/40" />
+                      </button>
+                    </div>
+                    <div className="space-y-4">
+                      <div>
+                        <label className="text-xs text-white/40 block mb-2">Dispute Window (Days)</label>
+                        <input
+                          type="number"
+                          value={configValues.refundWindow}
+                          onChange={(e) => setConfigValues({ ...configValues, refundWindow: Math.max(1, parseInt(e.target.value) || 0) })}
+                          className="w-full px-3 py-2 rounded-xl bg-black/20 border border-white/10 text-white"
+                          min="1"
+                        />
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => setConfigValues({ ...configValues, refundWindow: 1 })}
+                          className="flex-1 py-1.5 rounded-lg text-xs font-bold bg-orange-500/10 text-orange-300 hover:bg-orange-500/20"
+                        >
+                          1 day
+                        </button>
+                        <button
+                          onClick={() => setConfigValues({ ...configValues, refundWindow: 3 })}
+                          className="flex-1 py-1.5 rounded-lg text-xs font-bold bg-orange-500/10 text-orange-300 hover:bg-orange-500/20"
+                        >
+                          3 days
+                        </button>
+                        <button
+                          onClick={() => setConfigValues({ ...configValues, refundWindow: 7 })}
+                          className="flex-1 py-1.5 rounded-lg text-xs font-bold bg-orange-500/10 text-orange-300 hover:bg-orange-500/20"
+                        >
+                          7 days
+                        </button>
+                        <button
+                          onClick={() => setConfigValues({ ...configValues, refundWindow: 14 })}
+                          className="flex-1 py-1.5 rounded-lg text-xs font-bold bg-orange-500/10 text-orange-300 hover:bg-orange-500/20"
+                        >
+                          14 days
+                        </button>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => setEditingConfig(null)}
+                          className="flex-1 py-2 rounded-xl bg-white/5 text-white/40 font-bold hover:bg-white/10"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={() => updateConfigOnChain('refundWindow')}
+                          disabled={txLoading}
+                          className="flex-1 py-2 rounded-xl bg-orange-500/15 text-orange-300 font-bold hover:bg-orange-500/25 disabled:opacity-50"
+                        >
+                          {txLoading ? 'Updating...' : 'Update On-Chain'}
+                        </button>
+                      </div>
+                    </div>
+                  </motion.div>
+                </motion.div>
+              )}
+
+              {/* Verification Expiry Modal */}
+              {editingConfig === 'verificationExpiry' && (
+                <motion.div
+                  initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                  className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+                  onClick={() => setEditingConfig(null)}
+                >
+                  <motion.div
+                    initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }}
+                    onClick={(e) => e.stopPropagation()}
+                    className="bg-white/2 border border-white/5 rounded-3xl p-6 max-w-md w-full"
+                  >
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="font-bold text-white flex items-center gap-2">
+                        <CheckCircle size={18} className="text-emerald-400" />
+                        Update Verification Expiry
+                      </h3>
+                      <button
+                        onClick={() => setEditingConfig(null)}
+                        className="p-1 hover:bg-white/5 rounded-lg transition-all"
+                      >
+                        <X size={18} className="text-white/40" />
+                      </button>
+                    </div>
+                    <div className="space-y-4">
+                      <div>
+                        <label className="text-xs text-white/40 block mb-2">Verification Expiry (Years)</label>
+                        <input
+                          type="number"
+                          value={configValues.verificationExpiry}
+                          onChange={(e) => setConfigValues({ ...configValues, verificationExpiry: Math.max(1, parseInt(e.target.value) || 0) })}
+                          className="w-full px-3 py-2 rounded-xl bg-black/20 border border-white/10 text-white"
+                          min="1"
+                        />
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => setConfigValues({ ...configValues, verificationExpiry: 1 })}
+                          className="flex-1 py-1.5 rounded-lg text-xs font-bold bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20"
+                        >
+                          1 year
+                        </button>
+                        <button
+                          onClick={() => setConfigValues({ ...configValues, verificationExpiry: 2 })}
+                          className="flex-1 py-1.5 rounded-lg text-xs font-bold bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20"
+                        >
+                          2 years
+                        </button>
+                        <button
+                          onClick={() => setConfigValues({ ...configValues, verificationExpiry: 3 })}
+                          className="flex-1 py-1.5 rounded-lg text-xs font-bold bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20"
+                        >
+                          3 years
+                        </button>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => setEditingConfig(null)}
+                          className="flex-1 py-2 rounded-xl bg-white/5 text-white/40 font-bold hover:bg-white/10"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={() => updateConfigOnChain('verificationExpiry')}
+                          disabled={txLoading}
+                          className="flex-1 py-2 rounded-xl bg-emerald-500/15 text-emerald-300 font-bold hover:bg-emerald-500/25 disabled:opacity-50"
+                        >
+                          {txLoading ? 'Updating...' : 'Update On-Chain'}
+                        </button>
+                      </div>
+                    </div>
+                  </motion.div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </motion.div>
         )}
       </main>

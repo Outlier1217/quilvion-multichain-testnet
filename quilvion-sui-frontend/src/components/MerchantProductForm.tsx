@@ -2,6 +2,7 @@
 import { useState, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { X, Plus, Loader2, Tag, DollarSign, Package, Upload } from 'lucide-react';
+import { API_BASE } from '@/lib/sui/constants';
 
 export interface MerchantProduct {
   name: string;
@@ -23,7 +24,7 @@ interface MerchantProductFormProps {
 
 const EMOJIS = ['🎓','📊','🔐','🎨','📈','⚙️','🛠️','💡','🚀','📱','🎵','✍️','🤖','🌐','💎'];
 const CATEGORIES = ['Education', 'Templates', 'Services', 'Digital Art', 'Finance', 'Software', 'Other'];
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const API = API_BASE;
 
 export function MerchantProductForm({ onClose, onSubmit, loading, editProduct }: MerchantProductFormProps) {
   const isEdit = !!editProduct;

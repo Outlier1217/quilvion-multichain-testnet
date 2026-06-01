@@ -27,4 +27,23 @@ export const SUI_CONFIG = {
 export const toUsdc   = (display: number) => display * 1_000_000;
 export const fromUsdc = (micro:   number) => micro   / 1_000_000;
 
-export const API_BASE = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, '') || "http://localhost:8000";
+const envApiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, '');
+
+function getGithubDevFallback(host: string) {
+  if (host.endsWith('-3000.app.github.dev')) {
+    return `https://${host.replace(/-3000\.app\.github\.dev$/, '-8000.app.github.dev')}`;
+  }
+  return null;
+}
+
+function getLocalFallback(host: string) {
+  if (host.includes(':3000')) {
+    return `${window.location.protocol}//${host.replace(/:3000$/, ':8000')}`;
+  }
+  if (host.match(/:\d+$/)) {
+    return `${window.location.protocol}//${host.replace(/:\d+$/, ':8000')}`;
+  }
+  return `${window.location.protocol}//${host}`;
+}
+
+export const API_BASE = envApiBase || (typeof window !== 'undefined' ? getGithubDevFallback(window.location.host) ?? getLocalFallback(window.location.host) : 'http://localhost:8000');

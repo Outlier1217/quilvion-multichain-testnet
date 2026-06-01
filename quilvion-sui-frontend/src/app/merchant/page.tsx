@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ConnectButton, useCurrentAccount, useSignAndExecuteTransaction } from '@mysten/dapp-kit';
 import { Transaction } from '@mysten/sui/transactions';
@@ -9,15 +9,14 @@ import {
   Zap, TrendingUp, X, CheckCircle, AlertTriangle,
   ChevronRight, Loader2, Eye, BarChart3
 } from 'lucide-react';
-import { PRODUCTS, CATEGORIES, type Product } from '@/lib/products';
+import { type Product } from '@/lib/products';
 import { MintUsdc } from '@/components/MintUsdc';
 import { MerchantOnboard, type MerchantData } from '@/components/MerchantOnboard';
 import { MerchantProductForm, type MerchantProduct } from '@/components/MerchantProductForm';
 import { MerchantStats } from '@/components/MerchantStats';
 import { SUI_CONFIG } from '@/lib/sui/constants';
-import { registerMerchant, getMerchantProfile, addProduct, fetchMerchantProducts, editProduct, fetchMerchantOrders } from '@/lib/api';
+import { registerMerchant, getMerchantProfile, addProduct, fetchMerchantProducts, editProduct, fetchMerchantOrders, fetchProducts } from '@/lib/api';
 import { buildDeliverDigitalProduct } from '@/lib/sui/transactions';
-import { useEffect } from 'react';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 type MerchantStatus = 'none' | 'pending' | 'approved';
@@ -30,14 +29,6 @@ interface LocalProduct extends MerchantProduct {
   reviewCount: number;
   rating: number;
 }
-
-// ── Dummy merchant orders ──────────────────────────────────────────────────────
-const DUMMY_MERCHANT_ORDERS = [
-  { id: 201, productName: 'Web3 Dev Bootcamp', amountUsdc: 89, status: 'COMPLETED', createdAt: '2025-05-01', buyerWallet: '0xabc123...7890' },
-  { id: 202, productName: 'DeFi Dashboard Template', amountUsdc: 149, status: 'PENDING', createdAt: '2025-05-03', buyerWallet: '0xdef456...1234' },
-  { id: 203, productName: 'Smart Contract Audit', amountUsdc: 299, status: 'COMPLETED', createdAt: '2025-05-05', buyerWallet: '0x9ab321...5678' },
-];
-
 
 export default function MerchantDashboard() {
   const account = useCurrentAccount();
@@ -53,6 +44,8 @@ export default function MerchantDashboard() {
   const [myProducts, setMyProducts] = useState<LocalProduct[]>([]);
   const [merchantOrders, setMerchantOrders] = useState<any[]>([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
+  const [marketplaceProducts, setMarketplaceProducts] = useState<Product[]>([]);
+  const [productsLoading, setProductsLoading] = useState(true);
   const [txSuccess, setTxSuccess] = useState<string | null>(null);
   const [txError, setTxError] = useState<string | null>(null);
   const [editingProduct, setEditingProduct] = useState<LocalProduct | null>(null);
@@ -92,6 +85,17 @@ export default function MerchantDashboard() {
   useEffect(() => {
     loadMerchantData();
   }, [account?.address]);
+
+  useEffect(() => {
+    setProductsLoading(true);
+    fetchProducts()
+      .then(setMarketplaceProducts)
+      .catch(err => {
+        console.error('Failed to fetch marketplace products:', err);
+        setMarketplaceProducts([]);
+      })
+      .finally(() => setProductsLoading(false));
+  }, []);
 
   // handleOnboardSubmit replace karo
   const handleOnboardSubmit = async (data: MerchantData) => {
@@ -356,7 +360,7 @@ export default function MerchantDashboard() {
             {/* Stats */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8">
               {[
-                { label: 'Products', value: PRODUCTS.length, icon: ShoppingBag, color: '#4DA2FF' },
+                { label: 'Products', value: marketplaceProducts.length, icon: ShoppingBag, color: '#4DA2FF' },
                 { label: 'Escrow Protected', value: '100%', icon: Shield, color: '#10b981' },
                 { label: 'Avg Rating', value: '4.8★', icon: Star, color: '#f59e0b' },
                 { label: 'Chain', value: 'Sui', icon: Zap, color: '#AB9FF2' },
@@ -374,51 +378,57 @@ export default function MerchantDashboard() {
 
             {/* Product grid (view-only) */}
             <h2 className="text-base font-bold text-white/60 mb-4">All Products on Marketplace</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {PRODUCTS.map((product, i) => (
-                <motion.div key={product.id}
-                  initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: i * 0.07 }}
-                  className="p-5 rounded-2xl border border-white/5"
-                  style={{ background: 'rgba(255,255,255,0.02)' }}>
+            {productsLoading ? (
+              <div className="py-12 text-center text-white/50">Loading marketplace products…</div>
+            ) : marketplaceProducts.length === 0 ? (
+              <div className="py-12 text-center text-white/50">No marketplace products found.</div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {marketplaceProducts.map((product, i) => (
+                  <motion.div key={product.id}
+                    initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: i * 0.07 }}
+                    className="p-5 rounded-2xl border border-white/5"
+                    style={{ background: 'rgba(255,255,255,0.02)' }}>
 
-                  <div className="w-full h-24 rounded-xl flex items-center justify-center text-4xl mb-4"
-                    style={{ background: 'rgba(255,255,255,0.04)' }}>
-                    {product.emoji}
-                  </div>
+                    <div className="w-full h-24 rounded-xl flex items-center justify-center text-4xl mb-4"
+                      style={{ background: 'rgba(255,255,255,0.04)' }}>
+                      {product.emoji}
+                    </div>
 
-                  <div className="flex items-start justify-between gap-2 mb-2">
-                    <div className="flex-1 min-w-0">
-                      <span className="text-xs text-white/30 uppercase tracking-wider">{product.category}</span>
-                      <h3 className="font-bold text-white text-sm mt-0.5 line-clamp-2">{product.name}</h3>
+                    <div className="flex items-start justify-between gap-2 mb-2">
+                      <div className="flex-1 min-w-0">
+                        <span className="text-xs text-white/30 uppercase tracking-wider">{product.category}</span>
+                        <h3 className="font-bold text-white text-sm mt-0.5 line-clamp-2">{product.name}</h3>
+                      </div>
+                      <div className="text-right flex-shrink-0">
+                        <div className="font-black text-white text-sm">${product.priceUsdc}</div>
+                        <div className="text-xs text-white/30">USDC</div>
+                      </div>
                     </div>
-                    <div className="text-right flex-shrink-0">
-                      <div className="font-black text-white text-sm">${product.priceUsdc}</div>
-                      <div className="text-xs text-white/30">USDC</div>
-                    </div>
-                  </div>
 
-                  <div className="flex flex-wrap gap-1 mb-3">
-                    {product.tags.slice(0, 2).map(tag => (
-                      <span key={tag} className="text-xs px-2 py-0.5 rounded-full"
-                        style={{ background: 'rgba(77,162,255,0.1)', color: '#4DA2FF' }}>
-                        {tag}
-                      </span>
-                    ))}
-                  </div>
+                    <div className="flex flex-wrap gap-1 mb-3">
+                      {(product.tags ?? []).slice(0, 2).map(tag => (
+                        <span key={tag} className="text-xs px-2 py-0.5 rounded-full"
+                          style={{ background: 'rgba(77,162,255,0.1)', color: '#4DA2FF' }}>
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
 
-                  <div className="flex items-center justify-between text-xs text-white/40">
-                    <div className="flex items-center gap-1">
-                      <Star size={11} className="text-yellow-400 fill-yellow-400" />
-                      {product.rating} ({product.reviewCount})
+                    <div className="flex items-center justify-between text-xs text-white/40">
+                      <div className="flex items-center gap-1">
+                        <Star size={11} className="text-yellow-400 fill-yellow-400" />
+                        {product.rating} ({product.reviewCount})
+                      </div>
+                      <div className="flex items-center gap-1" style={{ color: '#10b981' }}>
+                        <Shield size={10} /> Escrow
+                      </div>
                     </div>
-                    <div className="flex items-center gap-1" style={{ color: '#10b981' }}>
-                      <Shield size={10} /> Escrow
-                    </div>
-                  </div>
-                </motion.div>
-              ))}
-            </div>
+                  </motion.div>
+                ))}
+              </div>
+            )}
           </motion.div>
         )}
 
