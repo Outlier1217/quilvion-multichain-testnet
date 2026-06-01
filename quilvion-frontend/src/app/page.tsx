@@ -49,7 +49,7 @@ const WALLETS = [
     desc: 'For Sui blockchain',
     // redirect: '/sui',
     // redirect: 'http://localhost:3000',
-    redirect: 'https://zany-adventure-jj6rp5vg5gxx2qx57-3001.app.github.dev',
+    redirect: 'https://musical-space-xylophone-pj64xv6qwr7rc7q4g-3000.app.github.dev',
   },
   {
     id: 'petra',
@@ -67,18 +67,35 @@ const WALLETS = [
 ];
 
 // ── Products ──────────────────────────────────────────────────────────────────
-const PRODUCTS = [
-  { name: 'Digital Art Bundle', price: '0.05 ETH', category: 'Digital', rating: 4.9, sales: '2.1k', emoji: '🎨' },
-  { name: 'Web3 Dev Course', price: '12 SOL', category: 'Education', rating: 4.8, sales: '890', emoji: '📚' },
-  { name: 'DeFi Analytics Pro', price: '150 USDC', category: 'Tools', rating: 4.7, sales: '1.4k', emoji: '📊' },
-  { name: 'NFT Collection Pass', price: '2 SUI', category: 'NFT', rating: 5.0, sales: '3.2k', emoji: '🏆' },
-  { name: 'Smart Contract Audit', price: '0.1 APT', category: 'Service', rating: 4.9, sales: '340', emoji: '🔐' },
-  { name: 'Trading Signals Alpha', price: '50 USDC', category: 'Finance', rating: 4.6, sales: '5.7k', emoji: '📈' },
+type ProductListing = {
+  id: number;
+  name: string;
+  category: string;
+  price_usdc: number;
+  emoji: string;
+  rating: number;
+  review_count?: number;
+  merchant_name?: string;
+  merchant_orders?: number;
+  merchant_success_rate?: number;
+  tags?: string[];
+  images?: string[];
+};
+
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || '';
+
+const FALLBACK_PRODUCTS: ProductListing[] = [
+  { id: 1, name: 'Digital Art Bundle', category: 'Digital', price_usdc: 150, rating: 4.9, review_count: 2100, emoji: '🎨' },
+  { id: 2, name: 'Web3 Dev Course', category: 'Education', price_usdc: 12, rating: 4.8, review_count: 890, emoji: '📚' },
+  { id: 3, name: 'DeFi Analytics Pro', category: 'Tools', price_usdc: 150, rating: 4.7, review_count: 1400, emoji: '📊' },
+  { id: 4, name: 'NFT Collection Pass', category: 'NFT', price_usdc: 2, rating: 5.0, review_count: 3200, emoji: '🏆' },
+  { id: 5, name: 'Smart Contract Audit', category: 'Services', price_usdc: 0.1, rating: 4.9, review_count: 340, emoji: '🔐' },
+  { id: 6, name: 'Trading Signals Alpha', category: 'Finance', price_usdc: 50, rating: 4.6, review_count: 5700, emoji: '📈' },
 ];
 
 const STATS = [
-  { label: 'Total Volume', value: '$4.2M', icon: TrendingUp },
-  { label: 'Active Users', value: '18,400', icon: Globe },
+  { label: 'Total Volume', value: 'Launching Soon...', icon: TrendingUp },
+  { label: 'Active Users', value: 'Launching Soon...', icon: Globe },
   { label: 'Chains Supported', value: '4', icon: Zap },
   { label: 'Secured by Escrow', value: '100%', icon: Lock },
 ];
@@ -201,12 +218,54 @@ export default function LandingPage() {
   const [blockchainModalOpen, setBlockchainModalOpen] = useState(false);
   const [connecting, setConnecting] = useState<string | null>(null);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+  const [products, setProducts] = useState<ProductListing[]>([]);
+  const [productsLoading, setProductsLoading] = useState(true);
+  const [productsError, setProductsError] = useState<string | null>(null);
   const heroRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handle = (e: MouseEvent) => setMousePos({ x: e.clientX, y: e.clientY });
     window.addEventListener('mousemove', handle);
     return () => window.removeEventListener('mousemove', handle);
+  }, []);
+
+  useEffect(() => {
+    async function loadProducts() {
+      setProductsLoading(true);
+      setProductsError(null);
+
+      try {
+        const requestUrl = API_BASE_URL ? `${API_BASE_URL}/api/buyer/products` : '/api/buyer/products';
+        const res = await fetch(requestUrl);
+        if (!res.ok) {
+          throw new Error(`Could not load products (${res.status})`);
+        }
+
+        const data = await res.json();
+        const normalized = Array.isArray(data) ? data.map((item: any) => ({
+          id: Number(item.id),
+          name: item.name,
+          category: item.category || 'General',
+          price_usdc: Number(item.price_usdc ?? (item.price || 0)),
+          emoji: item.emoji || '🛒',
+          rating: Number(item.rating ?? 4.8),
+          review_count: Number(item.review_count ?? item.sales ?? 0),
+          merchant_name: item.merchant_name || item.merchantName,
+          merchant_orders: Number(item.merchant_orders ?? item.merchantOrders ?? 0),
+          merchant_success_rate: Number(item.merchant_success_rate ?? item.merchantSuccessRate ?? 0),
+          tags: item.tags || [],
+          images: item.images || [],
+        })) : [];
+        setProducts(normalized);
+      } catch (error: any) {
+        console.error('Marketplace load failed:', error);
+        setProductsError(error.message || 'Unable to load marketplace products.');
+      } finally {
+        setProductsLoading(false);
+      }
+    }
+
+    loadProducts();
   }, []);
 
   const handleChainSelect = async (wallet: typeof WALLETS[0]) => {
@@ -309,7 +368,7 @@ export default function LandingPage() {
           transition={{ delay: 0.2 }}
         >
           <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-          Live on 4 Blockchains · Escrow Protected
+          AI Fraud Detection · Wallet = Identity · Escrow Secured
         </motion.div>
 
         <div className="max-w-4xl">
@@ -320,13 +379,13 @@ export default function LandingPage() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.3, duration: 0.8 }}
           >
-            <span className="text-white">Commerce</span>
+            <span className="text-white">Quilvion</span>
             <br />
             <span
               className="bg-clip-text text-transparent"
               style={{ backgroundImage: 'linear-gradient(135deg, #6366f1 0%, #4DA2FF 50%, #AB9FF2 100%)' }}
             >
-              Without Borders.
+              AI-Powered Multichain Commerce.
             </span>
           </motion.h1>
 
@@ -336,8 +395,7 @@ export default function LandingPage() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.5 }}
           >
-            Buy and sell digital products across Ethereum, Solana, Sui, and Aptos —
-            protected by on-chain escrow, powered by USDC stablecoin.
+            Wallet-based identity meets smart-contract escrow and fraud scoring. Shop digital products over Ethereum, Solana, Sui, and Aptos with live marketplace listings.
           </motion.p>
 
           <motion.div
@@ -354,7 +412,7 @@ export default function LandingPage() {
                 boxShadow: '0 0 40px rgba(99,102,241,0.35)',
               }}
             >
-              Start Shopping
+              Explore Marketplace
               <ArrowRight size={16} />
             </button>
             <button
@@ -466,56 +524,78 @@ export default function LandingPage() {
             className="hidden md:flex items-center gap-1.5 text-sm text-indigo-400 hover:text-white transition-colors"
             onClick={() => setBlockchainModalOpen(true)}
           >
-            View all <ChevronRight size={14} />
+            Browse live marketplace <ChevronRight size={14} />
           </button>
         </motion.div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {PRODUCTS.map((product, i) => (
-            <motion.div
-              key={product.name}
-              className="group p-5 rounded-2xl border border-white/5 hover:border-white/12 transition-all cursor-pointer"
-              style={{ background: 'rgba(255,255,255,0.02)' }}
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ delay: i * 0.08 }}
-              whileHover={{ y: -4, backgroundColor: 'rgba(255,255,255,0.04)' }}
-              onClick={() => setBlockchainModalOpen(true)}
-            >
-              <div
-                className="w-full h-32 rounded-xl mb-4 flex items-center justify-center text-5xl"
-                style={{ background: 'rgba(255,255,255,0.04)' }}
+        {productsLoading ? (
+          <div className="flex items-center justify-center py-16 text-white/50">
+            <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-white/40 border-solid border-white/10" />
+            <span className="ml-3">Loading marketplace products...</span>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {(products.length ? products : FALLBACK_PRODUCTS).map((product, i) => (
+              <motion.div
+                key={product.id}
+                className="group p-5 rounded-2xl border border-white/5 hover:border-white/12 transition-all cursor-pointer"
+                style={{ background: 'rgba(255,255,255,0.02)' }}
+                initial={{ opacity: 0, y: 20 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ delay: i * 0.08 }}
+                whileHover={{ y: -4, backgroundColor: 'rgba(255,255,255,0.04)' }}
+                onClick={() => setBlockchainModalOpen(true)}
               >
-                {product.emoji}
-              </div>
-              <div className="flex items-start justify-between gap-2">
-                <div className="flex-1 min-w-0">
-                  <span className="text-xs text-white/30 font-medium uppercase tracking-wider">
-                    {product.category}
-                  </span>
-                  <h3 className="font-bold text-white text-sm mt-0.5 truncate">{product.name}</h3>
+                <div className="relative w-full h-32 rounded-xl mb-4 overflow-hidden bg-white/5">
+                  {product.images && product.images.length > 0 ? (
+                    <Image
+                      src={product.images[0]}
+                      alt={product.name}
+                      fill
+                      sizes="(max-width: 768px) 100vw, 33vw"
+                      className="object-cover transition-transform duration-500 group-hover:scale-105"
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-5xl">
+                      {product.emoji}
+                    </div>
+                  )}
                 </div>
-                <div className="text-right flex-shrink-0">
-                  <div className="font-black text-white text-sm" style={{ fontFamily: 'var(--font-display)' }}>
-                    {product.price}
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex-1 min-w-0">
+                    <span className="text-xs text-white/30 font-medium uppercase tracking-wider">
+                      {product.category}
+                    </span>
+                    <h3 className="font-bold text-white text-sm mt-0.5 truncate">{product.name}</h3>
+                  </div>
+                  <div className="text-right flex-shrink-0">
+                    <div className="font-black text-white text-sm" style={{ fontFamily: 'var(--font-display)' }}>
+                      ${product.price_usdc}
+                    </div>
+                    <div className="text-xs text-white/30">USDC</div>
                   </div>
                 </div>
-              </div>
-              <div className="flex items-center justify-between mt-3">
-                <div className="flex items-center gap-1">
-                  <Star size={11} className="text-yellow-400 fill-yellow-400" />
-                  <span className="text-xs text-white/50">{product.rating}</span>
-                  <span className="text-xs text-white/25 ml-1">({product.sales} sold)</span>
+                <div className="flex items-center justify-between mt-3">
+                  <div className="flex items-center gap-1">
+                    <Star size={11} className="text-yellow-400 fill-yellow-400" />
+                    <span className="text-xs text-white/50">{product.rating.toFixed(1)}</span>
+                    <span className="text-xs text-white/25 ml-1">({product.review_count ?? 0} reviews)</span>
+                  </div>
+                  <div className="flex items-center gap-1 text-xs text-indigo-400 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <Shield size={11} />
+                    <span>Escrow protected</span>
+                  </div>
                 </div>
-                <div className="flex items-center gap-1 text-xs text-indigo-400 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <Shield size={11} />
-                  <span>Escrow protected</span>
-                </div>
-              </div>
-            </motion.div>
-          ))}
-        </div>
+              </motion.div>
+            ))}
+          </div>
+        )}
+        {productsError && (
+          <div className="mt-6 rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-100">
+            Unable to load marketplace products: {productsError}
+          </div>
+        )}
       </section>
 
       {/* ── HOW IT WORKS ── */}
