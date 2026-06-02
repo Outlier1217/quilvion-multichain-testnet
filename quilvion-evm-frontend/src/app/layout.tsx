@@ -9,6 +9,9 @@ const dmSans = DM_Sans({ subsets: ['latin'], variable: '--font-body', weight: ['
 export const metadata: Metadata = {
   title: 'Quilvion · Sui — Multichain Commerce',
   description: 'Buy digital products on Sui with USDC — escrow protected, AI fraud detection.',
+  icons: {
+    icon: '/logo.png',
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
