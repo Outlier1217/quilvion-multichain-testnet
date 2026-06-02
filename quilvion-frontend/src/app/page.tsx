@@ -49,7 +49,7 @@ const WALLETS = [
     desc: 'For Sui blockchain',
     // redirect: '/sui',
     // redirect: 'http://localhost:3000',
-    redirect: 'https://musical-space-xylophone-pj64xv6qwr7rc7q4g-3000.app.github.dev',
+    redirect: 'https://app.quilvion.xyz',
   },
   {
     id: 'petra',
