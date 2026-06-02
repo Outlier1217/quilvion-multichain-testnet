@@ -1,0 +1,14 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+*, *::before, *::after { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { font-family: var(--font-body), sans-serif; -webkit-font-smoothing: antialiased; }
+
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: #05050f; }
+::-webkit-scrollbar-thumb { background: rgba(77,162,255,0.3); border-radius: 2px; }
+::selection { background: rgba(77,162,255,0.3); color: #fff; }
+
+input::placeholder { color: rgba(255,255,255,0.25); }
