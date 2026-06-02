@@ -5,8 +5,10 @@ import { getFullnodeUrl } from '@mysten/sui/client';
 import '@mysten/dapp-kit/dist/index.css';
 
 const queryClient = new QueryClient();
+
+// Default Mysten node ('testnet') ki jagah BlockVision ka reliable Testnet RPC use kar rahe hain
 const networks = {
-  testnet: { url: getFullnodeUrl('testnet') },
+  testnet: { url: 'https://sui-testnet-endpoint.blockvision.org' },
   mainnet: { url: getFullnodeUrl('mainnet') },
 };
 

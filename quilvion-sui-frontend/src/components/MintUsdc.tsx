@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { createPortal } from 'react-dom';
 import { useCurrentAccount, useSignAndExecuteTransaction } from '@mysten/dapp-kit';
 import { Transaction } from '@mysten/sui/transactions';
 import { Coins, Loader2, CheckCircle, X, ChevronDown, ChevronUp } from 'lucide-react';
@@ -58,29 +59,32 @@ export function MintUsdc() {
 
   return (
     <div className="relative">
-      {/* Toast */}
-      <AnimatePresence>
-        {(success || error) && (
-          <motion.div
-            className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 max-w-sm w-full px-4"
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 10 }}
-          >
-            <div className="flex items-center gap-3 p-3 rounded-2xl border text-sm"
-              style={{
-                background: success ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)',
-                borderColor: success ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)',
-              }}>
-              <CheckCircle size={14} className={success ? 'text-emerald-400' : 'text-red-400'} />
-              <span className="text-white/70 flex-1 truncate">{success || error}</span>
-              <button onClick={() => { setSuccess(null); setError(null); }}>
-                <X size={12} className="text-white/30 hover:text-white/60" />
-              </button>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* Toast (rendered into document.body to avoid clipping/overflow issues) */}
+      {typeof document !== 'undefined' && createPortal(
+        <AnimatePresence>
+          {(success || error) && (
+            <motion.div
+              className="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-[9999] max-w-sm w-full px-4"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 10 }}
+            >
+              <div className="flex items-center gap-3 p-3 rounded-2xl border text-sm"
+                style={{
+                  background: success ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)',
+                  borderColor: success ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)',
+                }}>
+                <CheckCircle size={14} className={success ? 'text-emerald-400' : 'text-red-400'} />
+                <span className="text-white/70 flex-1 truncate">{success || error}</span>
+                <button onClick={() => { setSuccess(null); setError(null); }}>
+                  <X size={12} className="text-white/30 hover:text-white/60" />
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>,
+        document.body
+      )}
 
       {/* Button + dropdown */}
       <div className="relative">
