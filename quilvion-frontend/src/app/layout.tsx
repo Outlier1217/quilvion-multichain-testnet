@@ -18,6 +18,9 @@ export const metadata: Metadata = {
   title: 'Quilvion — Multichain Commerce Platform',
   description: 'Buy and sell digital products across Ethereum, Solana, Sui, and Aptos — protected by on-chain escrow.',
   keywords: ['web3', 'commerce', 'blockchain', 'sui', 'solana', 'ethereum', 'aptos', 'escrow', 'USDC'],
+  icons: {
+    icon: '/logo.png',
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
