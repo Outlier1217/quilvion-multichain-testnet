@@ -2,17 +2,18 @@
 
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ConnectButton, useCurrentAccount, useSignAndExecuteTransaction } from '@mysten/dapp-kit';
-import { Transaction } from '@mysten/sui/transactions';
+import { ConnectButton } from '@/components/ConnectButton';
+import { useCurrentAccount, useSignAndExecuteTransaction } from '@/lib/evm/wallet';
+import { Transaction } from '@/lib/evm/transaction';
 import {
   ShoppingBag, Search, Star, Shield, Zap,
   X, AlertTriangle, CheckCircle, Loader2,
   MessageSquare, Package
 } from 'lucide-react';
 import { PRODUCTS, CATEGORIES, type Product } from '@/lib/products';
-import { getRiskScore, getFraudExplanation, buyerChat, fetchProducts, createOrderRecord, getOrderCreatedEventByDigest, fetchBuyerOrders, fetchBuyerStats } from '@/lib/api';
-import { buildCreateOrder, buildRaiseDispute, buildReleaseEscrow } from '@/lib/sui/transactions';
-import { SUI_CONFIG } from '@/lib/sui/constants';
+import { getRiskScore, getFraudExplanation, buyerChat, fetchProducts, createOrderRecord, fetchBuyerOrders, fetchBuyerStats } from '@/lib/api';
+import { buildCreateOrder, buildRaiseDispute, buildReleaseEscrow } from '@/lib/evm/transactions';
+import { API_BASE, EVM_CONFIG } from '@/lib/evm/constants';
 import { BuyerChat } from '@/components/BuyerChat';
 import { OrderCard } from '@/components/OrderCard';
 import { BuyModal } from '@/components/BuyModal';
@@ -130,7 +131,7 @@ export default function BuyerDashboard() {
   });
 
   const handleBuy = async (product: Product, usdcCoinId: string) => {
-    if (!account) return;
+    if (!account?.address) return;
     setTxLoading(true);
     setTxError(null);
     try {
@@ -141,33 +142,26 @@ export default function BuyerDashboard() {
         {
           onSuccess: async (result) => {
             try {
-              const createdEvent = (result as any)?.events?.find((event: any) =>
-                String(event?.type || '').includes('OrderCreated') && event?.parsedJson?.order_id !== undefined
-              ) ?? await getOrderCreatedEventByDigest(result.digest);
-
-              const orderId = Number(createdEvent?.parsedJson?.order_id);
-              if (!orderId) {
-                throw new Error('Could not read the new order id from the transaction');
-              }
-
-              await createOrderRecord({
-                id: orderId,
+              const response = await createOrderRecord({
                 buyer_wallet: account.address,
                 merchant_wallet: product.merchantWallet,
                 product_id: product.id,
                 product_name: product.name,
                 amount_usdc: product.priceUsdc,
                 status: 'PENDING',
+                chain: 'evm',
+                network: 'somniaTestnet',
                 tx_digest: result.digest,
+                tx_hash: result.hash,
                 risk_score: null,
                 delivery_info: product.deliveryInfo ?? null,
               });
 
-              if (account?.address) {
+              if (account.address) {
                 fetchBuyerOrders(account.address).then(setOrders);
               }
 
-              setTxSuccess(`Order placed and saved! Order #${orderId}`);
+              setTxSuccess(`Order placed and saved! Order #${response.order_id ?? 'pending'}`);
               setBuyingProduct(null);
             } catch (syncErr: any) {
               console.error('Failed to persist order record:', syncErr);
@@ -189,67 +183,52 @@ export default function BuyerDashboard() {
   };
 
   const handleDispute = async (orderId: number) => {
-    if (!account) return;
+    if (!account?.address) return;
     setDisputingOrderId(orderId);
     setTxLoading(true);
     setTxError(null);
     try {
-      const tx = new Transaction();
-      buildRaiseDispute(tx, orderId);
-      signAndExecute(
-        { transaction: tx },
-        {
-          onSuccess: () => { setTxSuccess(`Dispute raised for order #${orderId}`); setTxLoading(false); setDisputingOrderId(null); },
-          onError: (err) => { setTxError(err.message); setTxLoading(false); setDisputingOrderId(null); },
-        }
-      );
+      const res = await fetch(`${API_BASE}/api/orders/sync-status`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order_id: orderId, status: 'DISPUTED', wallet: account.address }),
+      });
+      if (!res.ok) {
+        throw new Error(await res.text());
+      }
+      setTxSuccess(`Dispute raised for order #${orderId}`);
+      if (account.address) {
+        fetchBuyerOrders(account.address).then(setOrders);
+      }
     } catch (err: any) {
-      setTxError(err.message);
+      setTxError(err.message || 'Unable to raise dispute');
+    } finally {
       setTxLoading(false);
       setDisputingOrderId(null);
     }
   };
 
   const handleReleaseEscrow = async (orderId: number) => {
-    if (!account) return;
-    
+    if (!account?.address) return;
     setTxLoading(true);
     setTxError(null);
 
     try {
-      const tx = new Transaction();
-      buildReleaseEscrow(tx, orderId);
-
-      signAndExecute(
-        { transaction: tx },
-        {
-          onSuccess: (result) => {
-            setTxSuccess(`✅ Escrow Released Successfully! Order #${orderId}`);
-            setTxLoading(false);
-            
-            // Refresh orders
-            if (account?.address) {
-              fetchBuyerOrders(account.address).then(setOrders);
-            }
-          },
-          onError: (err: any) => {
-            console.error("Release Error:", err);
-            
-            let message = err.message || "Failed to release escrow";
-            
-            if (message.includes("abort code: 8")) {
-              message = "❌ You can only release orders you purchased and that are still in PENDING status.";
-            } else if (message.includes("abort code")) {
-              message = `Contract Error (Code ${message.match(/\d+/)?.[0] || '?'}) - Check order status`;
-            }
-            
-            setTxError(message);
-            setTxLoading(false);
-          },
-        }
-      );
+      const res = await fetch(`${API_BASE}/api/orders/sync-status`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order_id: orderId, status: 'ESCROW_RELEASED', wallet: account.address }),
+      });
+      if (!res.ok) {
+        throw new Error(await res.text());
+      }
+      setTxSuccess(`✅ Escrow released for order #${orderId}`);
+      if (account.address) {
+        fetchBuyerOrders(account.address).then(setOrders);
+      }
     } catch (err: any) {
-      setTxError(err.message || "Transaction failed");
+      setTxError(err.message || 'Failed to release escrow');
+    } finally {
       setTxLoading(false);
     }
   };
@@ -264,7 +243,7 @@ export default function BuyerDashboard() {
           <div className="flex items-center gap-3">
             <img src="/logo.png" alt="Quilvion" className="w-8 h-8 rounded-lg object-contain" />
             <span className="font-bold text-sm hidden sm:block" style={{ fontFamily: 'var(--font-display)' }}>
-              Quilvion <span className="text-white/30">· Sui</span>
+              Quilvion <span className="text-white/30">· EVM</span>
             </span>
             {account && (
               <a href="/buyer/profile"
@@ -339,7 +318,7 @@ export default function BuyerDashboard() {
               Connect Your Wallet
             </h2>
             <p className="text-white/40 mb-6 max-w-sm">
-              Connect your Slush wallet to browse products, make purchases, and track your orders on Sui.
+              Connect your EVM wallet to browse products, make purchases, and track your orders on Somnia.
             </p>
             <ConnectButton />
           </motion.div>
@@ -358,7 +337,7 @@ export default function BuyerDashboard() {
                 { label: 'Products', value: products.length, icon: ShoppingBag, color: '#4DA2FF' },
                 { label: 'Escrow Protected', value: '100%', icon: Shield, color: '#10b981' },
                 { label: 'Avg Rating', value: '4.8★', icon: Star, color: '#f59e0b' },
-                { label: 'Chain', value: 'Sui', icon: Zap, color: '#AB9FF2' },
+                { label: 'Chain', value: 'EVM', icon: Zap, color: '#AB9FF2' },
               ].map((s, i) => (
                 <motion.div key={s.label} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: i * 0.08 }}
@@ -623,7 +602,7 @@ export default function BuyerDashboard() {
                     </div>
                     <div className="text-xs text-white/35 mt-0.5 flex items-center gap-1">
                       <Shield size={10} className="text-emerald-400" />
-                      {selectedProduct.priceUsdc >= SUI_CONFIG.ADMIN_THRESHOLD_USDC
+                      {selectedProduct.priceUsdc >= EVM_CONFIG.ADMIN_THRESHOLD_USDC
                         ? 'Held in escrow until delivery'
                         : 'Auto-completes on purchase'}
                     </div>
@@ -663,10 +642,10 @@ export default function BuyerDashboard() {
                 <span className="flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-semibold"
                   style={{ background: 'rgba(245,158,11,0.12)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.2)' }}>
                   <span className="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse" />
-                  Sui Testnet
+                  Somnia Testnet
                 </span>
                 <span className="text-xs text-white/20 hidden sm:block">
-                  Package: {SUI_CONFIG.PACKAGE_ID.slice(0, 10)}...
+                  Network: {EVM_CONFIG.NETWORK_NAME}
                 </span>
               </div>
 
@@ -722,7 +701,7 @@ export default function BuyerDashboard() {
             {/* Bottom row */}
             <div className="flex flex-col md:flex-row items-center justify-between gap-2 pt-6 border-t border-white/5">
               <p className="text-xs text-white/25">
-                © 2026 Quilvion · Sui. All transactions secured by on-chain escrow. Powered by Blockchain.
+                © 2026 Quilvion · EVM. All transactions secured by on-chain escrow. Powered by Blockchain.
               </p>
               <p className="text-xs text-white/20">
                 Developed by{' '}

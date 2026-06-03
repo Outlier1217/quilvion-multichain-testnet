@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { ConnectButton, useCurrentAccount } from '@mysten/dapp-kit';
+import { ConnectButton } from '@/components/ConnectButton';
+import { useCurrentAccount } from '@/lib/evm/wallet';
 import { ArrowLeft, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { BuyerProfileCard } from '@/components/BuyerProfileCard';
@@ -53,7 +54,7 @@ export default function BuyerProfilePage() {
             <span className="text-sm font-semibold">Back to Shop</span>
           </Link>
           <span className="font-bold text-sm" style={{ fontFamily: 'var(--font-display)' }}>
-            Buyer Profile <span className="text-white/30">· Sui</span>
+            Buyer Profile <span className="text-white/30">· Somnia</span>
           </span>
           <ConnectButton />
         </div>
@@ -69,7 +70,7 @@ export default function BuyerProfilePage() {
               Connect Your Wallet
             </h2>
             <p className="text-white/40 mb-6 max-w-sm">
-              Connect your Slush wallet to view your buyer profile, stats, and order history.
+              Connect your EVM wallet to view your buyer profile, stats, and order history.
             </p>
             <ConnectButton />
           </motion.div>
@@ -106,7 +107,7 @@ export default function BuyerProfilePage() {
                 </div>
                 <div className="flex items-center justify-between p-3 rounded-xl" style={{ background: 'rgba(255,255,255,0.02)' }}>
                   <span className="text-white/60">Network</span>
-                  <span className="text-white/80 font-semibold">Sui Mainnet</span>
+                  <span className="text-white/80 font-semibold">Somnia Testnet</span>
                 </div>
               </div>
             </div>

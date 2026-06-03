@@ -1,11 +1,8 @@
-// src/lib/sui/transactions.ts
+// src/lib/evm/transactions.ts
 // EVM-compatible frontend stubs for transaction helpers.
 
 import { Transaction } from '@/lib/evm/transaction';
 
-const PKG = 'EVT';
-
-// ── create_order ─────────────────────────────────────────────────────────────
 export function buildCreateOrder(
   tx: Transaction,
   productId: number,
@@ -19,7 +16,6 @@ export function buildCreateOrder(
   });
 }
 
-// ── raise_dispute ─────────────────────────────────────────────────────────────
 export function buildRaiseDispute(tx: Transaction, orderId: number) {
   tx.moveCall?.({
     target: 'EVM_RAISE_DISPUTE',
@@ -27,7 +23,6 @@ export function buildRaiseDispute(tx: Transaction, orderId: number) {
   });
 }
 
-// ── cancel_order ──────────────────────────────────────────────────────────────
 export function buildCancelOrder(tx: Transaction, orderId: number) {
   tx.moveCall?.({
     target: 'EVM_CANCEL_ORDER',
@@ -35,7 +30,6 @@ export function buildCancelOrder(tx: Transaction, orderId: number) {
   });
 }
 
-// ── release_escrow (Buyer confirms successful delivery) ───────────────────────
 export function buildReleaseEscrow(tx: Transaction, orderId: number) {
   tx.moveCall?.({
     target: 'EVM_RELEASE_ESCROW',
@@ -43,7 +37,6 @@ export function buildReleaseEscrow(tx: Transaction, orderId: number) {
   });
 }
 
-// ── deliver_digital_product (Merchant provides delivery info) ──────────────────
 export function buildDeliverDigitalProduct(tx: Transaction, orderId: number, deliveryInfo: string) {
   tx.moveCall?.({
     target: 'EVM_DELIVER_DIGITAL_PRODUCT',

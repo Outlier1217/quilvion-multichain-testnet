@@ -173,8 +173,8 @@ export function BuyModal({ product, walletAddress, onClose, onConfirm, loading }
           {/* ── USDC Coin Object ID (required for tx) ── */}
           <div>
             <label className="text-xs text-white/40 mb-1.5 block">
-              Your USDC Coin Object ID
-              <span className="ml-1 text-white/25">(from sui client objects)</span>
+              Your USDC Wallet Reference
+              <span className="ml-1 text-white/25">(from your wallet provider)</span>
             </label>
             <input
               value={usdcCoinId}

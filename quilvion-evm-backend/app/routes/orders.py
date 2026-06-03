@@ -28,7 +28,10 @@ class OrderResponse(BaseModel):
     product_name: str
     amount_usdc: float
     status: str
+    chain: Optional[str]
+    network: Optional[str]
     tx_digest: Optional[str]
+    tx_hash: Optional[str]
     risk_score: Optional[int]
     delivery_info: Optional[str]
     created_at: str
@@ -55,7 +58,10 @@ async def create_order(
         product_name=order_data.get("product_name"),
         amount_usdc=order_data.get("amount_usdc"),
         status=order_data.get("status", "PENDING"),
+        chain=order_data.get("chain", "evm"),
+        network=order_data.get("network", "somniaTestnet"),
         tx_digest=order_data.get("tx_digest"),
+        tx_hash=order_data.get("tx_hash"),
         risk_score=order_data.get("risk_score"),
         delivery_info=order_data.get("delivery_info"),
     )
@@ -194,7 +200,10 @@ async def get_buyer_orders(
             "product_name": order.product_name,
             "amount_usdc": order.amount_usdc,
             "status": order.status,
+            "chain": order.chain,
+            "network": order.network,
             "tx_digest": order.tx_digest,
+            "tx_hash": order.tx_hash,
             "risk_score": order.risk_score,
             "delivery_info": delivery_info,  # ✅ Decrypted only for completed orders
             "created_at": order.created_at.isoformat() if order.created_at else None,
@@ -224,7 +233,10 @@ async def get_merchant_orders(
             "product_name": order.product_name,
             "amount_usdc": order.amount_usdc,
             "status": order.status,
+            "chain": order.chain,
+            "network": order.network,
             "tx_digest": order.tx_digest,
+            "tx_hash": order.tx_hash,
             "risk_score": order.risk_score,
             "delivery_info": order.delivery_info,  # ✅ Merchant sees encrypted version
             "created_at": order.created_at.isoformat() if order.created_at else None,

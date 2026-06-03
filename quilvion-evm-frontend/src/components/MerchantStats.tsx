@@ -54,7 +54,7 @@ export function MerchantStats({ orders, companyName, category, onDeliver, loadin
                 <CheckCircle size={9} /> Verified
               </span>
             </div>
-            <p className="text-xs text-white/35 mt-0.5">{category} · Merchant on Sui Testnet</p>
+            <p className="text-xs text-white/35 mt-0.5">{category} · Merchant on Somnia Testnet</p>
           </div>
           <div className="text-right">
             <div className="text-xs text-white/30">Rating</div>

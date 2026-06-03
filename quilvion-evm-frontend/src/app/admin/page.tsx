@@ -7,9 +7,10 @@ import {
   Clock, BarChart3, Eye, Trash2, RefreshCw, Lock,
   AlertTriangle, Scale, Settings, Edit2, X
 } from 'lucide-react';
-import { ConnectButton, useSignAndExecuteTransaction, useCurrentAccount } from '@mysten/dapp-kit';
-import { Transaction } from '@mysten/sui/transactions';
-import { buildCreateOrder, buildCancelOrder, buildRaiseDispute, buildReleaseEscrow } from '@/lib/sui/transactions';
+import { ConnectButton } from '@/components/ConnectButton';
+import { useSignAndExecuteTransaction, useCurrentAccount } from '@/lib/evm/wallet';
+import { Transaction } from '@/lib/evm/transaction';
+import { buildCreateOrder, buildCancelOrder, buildRaiseDispute, buildReleaseEscrow } from '@/lib/evm/transactions';
 import {
   buildSetPlatformFee,
   buildSetDailySpendLimit,
@@ -19,10 +20,10 @@ import {
   usdcToMicro,
   daysToSeconds,
   describeConfig,
-} from '@/lib/sui/configTransactions';
-import { readConfigFromChain, formatConfigDisplay, configsMatch, type OnChainConfig } from '@/lib/sui/readConfig';
+} from '@/lib/evm/configTransactions';
+import { readConfigFromChain, formatConfigDisplay, configsMatch, type OnChainConfig } from '@/lib/evm/readConfig';
 import { fetchMerchantOrders } from '@/lib/api';
-import { API_BASE } from '@/lib/sui/constants';
+import { API_BASE } from '@/lib/evm/constants';
 
 const API = API_BASE;
 const ADMIN_WALLET = '0x8bc4555d0f1c8365fd377e9823f993b59b90b62e5eb375db084112f2e29711fa';
@@ -449,7 +450,7 @@ export default function AdminPanel() {
             {/* Testnet Note */}
             <div className="p-3 rounded-2xl bg-yellow-500/10 border border-yellow-500/20">
               <p className="text-xs text-yellow-300 flex items-center gap-2">
-                <AlertTriangle size={12} /> Make sure you're on Sui Testnet
+                <AlertTriangle size={12} /> Make sure you're on Somnia Testnet
               </p>
             </div>
           </div>
@@ -557,7 +558,7 @@ export default function AdminPanel() {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
                 <div>
                   <p className="text-blue-300/60 mb-1">Network</p>
-                  <p className="text-white/80 font-semibold">Sui Testnet</p>
+                  <p className="text-white/80 font-semibold">Somnia Testnet</p>
                 </div>
                 <div>
                   <p className="text-blue-300/60 mb-1">Token</p>

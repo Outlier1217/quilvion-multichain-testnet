@@ -2,6 +2,7 @@
 import { motion } from 'framer-motion';
 import { Shield, AlertTriangle, CheckCircle, Clock, Loader2, ExternalLink, Check, Package, Copy } from 'lucide-react';
 import { useState } from 'react';
+import { EVM_CONFIG } from '@/lib/evm/constants';
 
 interface Order {
   id: number;
@@ -40,7 +41,8 @@ export function OrderCard({
   loading: boolean;
 }) {
   const cfg = STATUS_CONFIG[order.status] ?? STATUS_CONFIG.PENDING;
-  const suiscanUrl = `https://suiscan.xyz/testnet/tx/${order.txDigest}`;
+  const txUrl = order.txHash || order.txDigest;
+  const explorerUrl = txUrl ? `${EVM_CONFIG.EXPLORER_BASE}/tx/${txUrl}` : null;
   const [copied, setCopied] = useState(false);
   const [accessCopied, setAccessCopied] = useState(false);
 
@@ -93,12 +95,12 @@ export function OrderCard({
             )}
           </div>
 
-          {order.txDigest && (
+          {explorerUrl && (
             <button
-              onClick={() => window.open(suiscanUrl, '_blank')}
+              onClick={() => window.open(explorerUrl, '_blank')}
               className="inline-flex items-center gap-1 text-xs text-white/20 hover:text-blue-400 transition-colors mt-1">
               <ExternalLink size={10} />
-              View on Suiscan
+              View on Explorer
             </button>
           )}
         </div>

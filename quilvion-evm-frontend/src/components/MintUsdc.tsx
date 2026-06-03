@@ -1,15 +1,14 @@
-'use client';
+use client';
 
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { createPortal } from 'react-dom';
-import { useCurrentAccount, useSignAndExecuteTransaction } from '@mysten/dapp-kit';
-import { Transaction } from '@mysten/sui/transactions';
+import { useCurrentAccount, useSignAndExecuteTransaction } from '@/lib/evm/wallet';
+import { Transaction } from '@/lib/evm/transaction';
 import { Coins, Loader2, CheckCircle, X, ChevronDown, ChevronUp } from 'lucide-react';
-import { SUI_CONFIG } from '@/lib/sui/constants';
 
 const MINT_AMOUNTS = [
-  { label: '50 USDC',  value: 50_000_000 },
+  { label: '50 USDC', value: 50_000_000 },
   { label: '100 USDC', value: 100_000_000 },
   { label: '500 USDC', value: 500_000_000 },
 ];
@@ -18,37 +17,33 @@ export function MintUsdc() {
   const account = useCurrentAccount();
   const { mutate: signAndExecute } = useSignAndExecuteTransaction();
 
-  const [open, setOpen]       = useState(false);
+  const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState<string | null>(null);
-  const [error, setError]     = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleMint = (amountMicro: number, label: string) => {
-    if (!account) return;
+  const handleMint = async (amountMicro: number, label: string) => {
+    if (!account?.address) return;
     setLoading(true);
     setSuccess(null);
     setError(null);
 
     const tx = new Transaction();
-    // faucet_mint(faucet, amount) — no TreasuryCap needed, anyone can call
-    tx.moveCall({
-      target: `${SUI_CONFIG.PACKAGE_ID}::usdc::faucet_mint`,
-      arguments: [
-        tx.object(SUI_CONFIG.FAUCET),
-        tx.pure.u64(amountMicro),
-      ],
+    tx.moveCall?.({
+      target: 'EVM_MINT_USDC',
+      arguments: [amountMicro],
     });
 
     signAndExecute(
       { transaction: tx },
       {
         onSuccess: (result) => {
-          setSuccess(`✅ ${label} minted! Tx: ${result.digest.slice(0, 20)}...`);
+          setSuccess(`✅ ${label} minted! Tx: ${result.digest?.slice(0, 20) ?? '0x...'}...`);
           setLoading(false);
           setOpen(false);
         },
         onError: (err) => {
-          setError(err.message.slice(0, 100));
+          setError(err.message || 'Mint failed');
           setLoading(false);
         },
       }
@@ -59,7 +54,6 @@ export function MintUsdc() {
 
   return (
     <div className="relative">
-      {/* Toast (rendered into document.body to avoid clipping/overflow issues) */}
       {typeof document !== 'undefined' && createPortal(
         <AnimatePresence>
           {(success || error) && (
@@ -86,7 +80,6 @@ export function MintUsdc() {
         document.body
       )}
 
-      {/* Button + dropdown */}
       <div className="relative">
         <button
           onClick={() => setOpen(!open)}

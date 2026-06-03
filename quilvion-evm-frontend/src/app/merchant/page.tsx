@@ -2,8 +2,9 @@
 
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ConnectButton, useCurrentAccount, useSignAndExecuteTransaction } from '@mysten/dapp-kit';
-import { Transaction } from '@mysten/sui/transactions';
+import { ConnectButton } from '@/components/ConnectButton';
+import { useCurrentAccount, useSignAndExecuteTransaction } from '@/lib/evm/wallet';
+import { Transaction } from '@/lib/evm/transaction';
 import {
   Store, ShoppingBag, Package, Plus, Star, Shield,
   Zap, TrendingUp, X, CheckCircle, AlertTriangle,
@@ -14,9 +15,9 @@ import { MintUsdc } from '@/components/MintUsdc';
 import { MerchantOnboard, type MerchantData } from '@/components/MerchantOnboard';
 import { MerchantProductForm, type MerchantProduct } from '@/components/MerchantProductForm';
 import { MerchantStats } from '@/components/MerchantStats';
-import { SUI_CONFIG } from '@/lib/sui/constants';
+import { EVM_CONFIG } from '@/lib/evm/constants';
 import { registerMerchant, getMerchantProfile, addProduct, fetchMerchantProducts, editProduct, fetchMerchantOrders, fetchProducts } from '@/lib/api';
-import { buildDeliverDigitalProduct } from '@/lib/sui/transactions';
+import { buildDeliverDigitalProduct } from '@/lib/evm/transactions';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 type MerchantStatus = 'none' | 'pending' | 'approved';
@@ -346,7 +347,7 @@ export default function MerchantDashboard() {
                     style={{ background: 'rgba(77,162,255,0.1)' }}>🚀</div>
                   <div>
                     <h3 className="font-bold text-white text-sm">Want to sell on Quilvion?</h3>
-                    <p className="text-xs text-white/40 mt-0.5">List your digital products with escrow protection on Sui</p>
+                    <p className="text-xs text-white/40 mt-0.5">List your digital products with escrow protection on EVM</p>
                   </div>
                 </div>
                 <button onClick={() => setShowOnboard(true)}
@@ -363,7 +364,7 @@ export default function MerchantDashboard() {
                 { label: 'Products', value: marketplaceProducts.length, icon: ShoppingBag, color: '#4DA2FF' },
                 { label: 'Escrow Protected', value: '100%', icon: Shield, color: '#10b981' },
                 { label: 'Avg Rating', value: '4.8★', icon: Star, color: '#f59e0b' },
-                { label: 'Chain', value: 'Sui', icon: Zap, color: '#AB9FF2' },
+                { label: 'Chain', value: 'EVM', icon: Zap, color: '#AB9FF2' },
               ].map((s, i) => (
                 <motion.div key={s.label} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: i * 0.08 }}
@@ -592,10 +593,10 @@ export default function MerchantDashboard() {
               <span className="flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-semibold"
                 style={{ background: 'rgba(245,158,11,0.12)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.2)' }}>
                 <span className="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse" />
-                Sui Testnet
+                Somnia Testnet
               </span>
               <span className="text-xs text-white/20 hidden sm:block">
-                Package: {SUI_CONFIG.PACKAGE_ID.slice(0, 10)}...
+                Package: {EVM_CONFIG.PACKAGE_ID.slice(0, 10)}...
               </span>
             </div>
             <div className="flex items-center gap-3">

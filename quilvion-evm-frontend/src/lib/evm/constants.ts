@@ -1,7 +1,7 @@
-// src/lib/sui/constants.ts
+// src/lib/evm/constants.ts
 // EVM-compatible configuration placeholders for Somnia and other EVM chains.
 
-export const SUI_CONFIG = {
+export const EVM_CONFIG = {
   NETWORK_NAME: 'Somnia Testnet',
   CHAIN_ID: 50312,
   RPC_URL: 'https://dream-rpc.somnia.network',
@@ -17,6 +17,7 @@ export const SUI_CONFIG = {
   PLATFORM_FEE_BPS: 250,
   ADMIN_THRESHOLD_USDC: 500,
   REFUND_WINDOW_DAYS: 7,
+  PACKAGE_ID: '0xA1fa19D58335b1341c5B8217E26C766fB605B1bA',
 } as const;
 
 export const toUsdc = (display: number) => display * 1_000_000;

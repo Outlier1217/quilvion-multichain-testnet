@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { ConnectButton, useCurrentAccount } from '@mysten/dapp-kit';
+import { ConnectButton } from '@/components/ConnectButton';
+import { useCurrentAccount } from '@/lib/evm/wallet';
 import { ArrowLeft, Loader2, TrendingUp, ShoppingBag, Star, AlertTriangle } from 'lucide-react';
 import Link from 'next/link';
 import { fetchMerchantOrders, fetchMerchantStats } from '@/lib/api';
@@ -52,7 +53,7 @@ export default function MerchantProfilePage() {
             <span className="text-sm font-semibold">Back to Dashboard</span>
           </Link>
           <span className="font-bold text-sm" style={{ fontFamily: 'var(--font-display)' }}>
-            Merchant Profile <span className="text-white/30">· Sui</span>
+            Merchant Profile <span className="text-white/30">· EVM</span>
           </span>
           <ConnectButton />
         </div>
@@ -96,7 +97,7 @@ export default function MerchantProfilePage() {
                       </div>
                       <div className="flex-1">
                         <h2 className="text-xl font-black text-white">{merchantStats.companyName}</h2>
-                        <p className="text-sm text-white/50 mt-1">{merchantStats.category} · Merchant on Sui Testnet</p>
+                        <p className="text-sm text-white/50 mt-1">{merchantStats.category} · Merchant on Somnia Testnet</p>
                       </div>
                       <div className="text-right">
                         <div className="text-xs text-white/30">Merchant Score</div>
@@ -190,7 +191,7 @@ export default function MerchantProfilePage() {
                 </div>
                 <div className="flex items-center justify-between p-3 rounded-xl" style={{ background: 'rgba(255,255,255,0.02)' }}>
                   <span className="text-white/60">Network</span>
-                  <span className="text-white/80 font-semibold">Sui Testnet</span>
+                  <span className="text-white/80 font-semibold">Somnia Testnet</span>
                 </div>
               </div>
             </div>

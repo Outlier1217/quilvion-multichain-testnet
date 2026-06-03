@@ -2,7 +2,7 @@
 import { useState, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { X, Plus, Loader2, Tag, DollarSign, Package, Upload } from 'lucide-react';
-import { API_BASE } from '@/lib/sui/constants';
+import { API_BASE } from '@/lib/evm/constants';
 
 export interface MerchantProduct {
   name: string;

@@ -73,7 +73,10 @@ class Order(Base):
     product_name = Column(String(300), nullable=False)
     amount_usdc = Column(Float, nullable=False)
     status = Column(String(20), default="PENDING", index=True)  # PENDING, COMPLETED, DISPUTED, CANCELLED, ESCROW_RELEASED, REFUNDED
+    chain = Column(String(30), default="evm", nullable=False, index=True)
+    network = Column(String(50), default="somniaTestnet", nullable=False)
     tx_digest = Column(String(100), nullable=True)
+    tx_hash = Column(String(100), nullable=True)
     risk_score = Column(Integer, nullable=True)
     delivery_info = Column(Text, nullable=True)  # Merchant-provided delivery/link after completion
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
@@ -121,15 +124,23 @@ def get_db():
 
 def init_db():
     Base.metadata.create_all(bind=engine)
-    # Add missing columns to products
+    # Add missing columns to products and orders
     try:
         with engine.connect() as conn:
             conn.execute(__import__('sqlalchemy').text(
                 "ALTER TABLE products ADD COLUMN IF NOT EXISTS images TEXT DEFAULT ''"
             ))
-            # Add delivery_info to orders if table exists
             conn.execute(__import__('sqlalchemy').text(
                 "ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_info TEXT DEFAULT NULL"
+            ))
+            conn.execute(__import__('sqlalchemy').text(
+                "ALTER TABLE orders ADD COLUMN IF NOT EXISTS chain VARCHAR(30) DEFAULT 'evm'"
+            ))
+            conn.execute(__import__('sqlalchemy').text(
+                "ALTER TABLE orders ADD COLUMN IF NOT EXISTS network VARCHAR(50) DEFAULT 'somniaTestnet'"
+            ))
+            conn.execute(__import__('sqlalchemy').text(
+                "ALTER TABLE orders ADD COLUMN IF NOT EXISTS tx_hash VARCHAR(100) DEFAULT NULL"
             ))
             conn.commit()
     except Exception:

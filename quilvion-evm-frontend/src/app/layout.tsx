@@ -7,8 +7,8 @@ const syne = Syne({ subsets: ['latin'], variable: '--font-display', weight: ['70
 const dmSans = DM_Sans({ subsets: ['latin'], variable: '--font-body', weight: ['400', '500', '600'] });
 
 export const metadata: Metadata = {
-  title: 'Quilvion · Sui — Multichain Commerce',
-  description: 'Buy digital products on Sui with USDC — escrow protected, AI fraud detection.',
+  title: 'Quilvion · EVM — Multichain Commerce',
+  description: 'Buy digital products on EVM with USDC — escrow protected, AI fraud detection.',
   icons: {
     icon: '/logo.png',
   },
