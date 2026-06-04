@@ -11,9 +11,15 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL environment variable not set!")
 
+EVM_DATABASE_URL = os.getenv("EVM_DATABASE_URL")
+if not EVM_DATABASE_URL:
+    raise RuntimeError("EVM_DATABASE_URL environment variable not set! Use a separate database for EVM merchant/product data.")
+
 # psycopg2 ke liye URL fix (Neon/Railway sometimes send postgres://)
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+if EVM_DATABASE_URL.startswith("postgres://"):
+    EVM_DATABASE_URL = EVM_DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
 engine = create_engine(
     DATABASE_URL,
@@ -23,6 +29,15 @@ engine = create_engine(
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
+
+evm_engine = create_engine(
+    EVM_DATABASE_URL,
+    pool_pre_ping=True,
+    pool_size=5,
+    max_overflow=10,
+)
+EvmSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=evm_engine)
+EvmBase = declarative_base()
 
 
 # ── Models ─────────────────────────────────────────────────────────────────────
@@ -110,6 +125,40 @@ class Configuration(Base):
     last_synced_at = Column(DateTime, nullable=True)  # When last synced from on-chain
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
 
+class EvmMerchant(EvmBase):
+    __tablename__ = "evm_merchants"
+
+    id              = Column(Integer, primary_key=True, index=True)
+    wallet_address  = Column(String(100), unique=True, index=True, nullable=False)
+    company_name    = Column(String(200), nullable=False)
+    description     = Column(Text, nullable=False)
+    website         = Column(String(300), default="")
+    category        = Column(String(100), nullable=False)
+    contact_email   = Column(String(200), nullable=False)
+    status          = Column(String(20), default="pending")   # pending | approved | rejected
+    created_at      = Column(DateTime, default=datetime.datetime.utcnow)
+
+
+class EvmProduct(EvmBase):
+    __tablename__ = "evm_products"
+
+    id                    = Column(Integer, primary_key=True, index=True)
+    merchant_wallet       = Column(String(100), nullable=False, index=True)
+    merchant_name         = Column(String(200), nullable=False)
+    name                  = Column(String(300), nullable=False)
+    description           = Column(Text, nullable=False)
+    price_usdc            = Column(Float, nullable=False)
+    category              = Column(String(100), nullable=False)
+    emoji                 = Column(String(10), default="🎁")
+    tags                  = Column(Text, default="")          # comma-separated
+    images                = Column(Text, default="")
+    delivery_info         = Column(Text, default="")
+    status                = Column(String(20), default="pending")  # pending | approved | rejected
+    rating                = Column(Float, default=0.0)
+    review_count          = Column(Integer, default=0)
+    merchant_orders       = Column(Integer, default=0)
+    merchant_success_rate = Column(Float, default=1.0)
+    created_at            = Column(DateTime, default=datetime.datetime.utcnow)
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -122,8 +171,18 @@ def get_db():
         db.close()
 
 
+def get_evm_db():
+    """FastAPI dependency — EVM merchant/product DB session per request"""
+    db = EvmSessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
 def init_db():
     Base.metadata.create_all(bind=engine)
+    EvmBase.metadata.create_all(bind=evm_engine)
     # Add missing columns to products and orders
     try:
         with engine.connect() as conn:

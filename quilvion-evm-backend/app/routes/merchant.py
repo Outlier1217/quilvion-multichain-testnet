@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
-from app.database import get_db, Merchant, Product, Order
+from app.database import get_db, get_evm_db, EvmMerchant, EvmProduct, Order
 from app.schemas import MerchantCreate, MerchantOut, ProductCreate
 from app.encrypt import encrypt_delivery_info
 from pydantic import BaseModel
@@ -18,12 +18,12 @@ cloudinary.config(
 )
 
 
-def _product_to_dict(p: Product, include_encrypted_delivery: bool = False) -> dict:
+def _product_to_dict(p: EvmProduct, include_encrypted_delivery: bool = False) -> dict:
     """
     Convert Product to dict
     
     Args:
-        p: Product model instance
+        p: EvmProduct model instance
         include_encrypted_delivery: If True, include encrypted delivery_info (for merchant/admin only)
     """
     result = {
@@ -74,9 +74,9 @@ async def upload_image(request: Request):
 
 # ── Register merchant ──────────────────────────────────────────────────────────
 @router.post("/register", response_model=MerchantOut)
-def register_merchant(data: MerchantCreate, db: Session = Depends(get_db)):
-    existing = db.query(Merchant).filter(
-        Merchant.wallet_address == data.wallet_address
+def register_merchant(data: MerchantCreate, db: Session = Depends(get_evm_db)):
+    existing = db.query(EvmMerchant).filter(
+        EvmMerchant.wallet_address == data.wallet_address
     ).first()
     if existing:
         return existing
@@ -98,9 +98,9 @@ def register_merchant(data: MerchantCreate, db: Session = Depends(get_db)):
 
 # ── Get merchant by wallet ─────────────────────────────────────────────────────
 @router.get("/{wallet_address}/profile", response_model=MerchantOut)
-def get_merchant(wallet_address: str, db: Session = Depends(get_db)):
-    merchant = db.query(Merchant).filter(
-        Merchant.wallet_address == wallet_address
+def get_merchant(wallet_address: str, db: Session = Depends(get_evm_db)):
+    merchant = db.query(EvmMerchant).filter(
+        EvmMerchant.wallet_address == wallet_address
     ).first()
     if not merchant:
         raise HTTPException(status_code=404, detail="Merchant not found")
@@ -109,9 +109,9 @@ def get_merchant(wallet_address: str, db: Session = Depends(get_db)):
 
 # ── Add product ────────────────────────────────────────────────────────────────
 @router.post("/product/add")
-def add_product(data: ProductCreate, db: Session = Depends(get_db)):
-    merchant = db.query(Merchant).filter(
-        Merchant.wallet_address == data.merchant_wallet
+def add_product(data: ProductCreate, db: Session = Depends(get_evm_db)):
+    merchant = db.query(EvmMerchant).filter(
+        EvmMerchant.wallet_address == data.merchant_wallet
     ).first()
     if not merchant:
         raise HTTPException(status_code=404, detail="Please Register a Merchant")
@@ -121,7 +121,7 @@ def add_product(data: ProductCreate, db: Session = Depends(get_db)):
     # Encrypt delivery info before storing
     encrypted_delivery_info = encrypt_delivery_info(data.delivery_info)
 
-    product = Product(
+    product = EvmProduct(
         merchant_wallet=data.merchant_wallet,
         merchant_name=merchant.company_name,
         name=data.name,
@@ -142,10 +142,10 @@ def add_product(data: ProductCreate, db: Session = Depends(get_db)):
 
 # ── Merchant ke apne products ──────────────────────────────────────────────────
 @router.get("/{wallet_address}/products")
-def get_merchant_products(wallet_address: str, db: Session = Depends(get_db)):
-    products = db.query(Product).filter(
-        Product.merchant_wallet == wallet_address
-    ).order_by(Product.created_at.desc()).all()
+def get_merchant_products(wallet_address: str, db: Session = Depends(get_evm_db)):
+    products = db.query(EvmProduct).filter(
+        EvmProduct.merchant_wallet == wallet_address
+    ).order_by(EvmProduct.created_at.desc()).all()
     return [_product_to_dict(p, include_encrypted_delivery=True) for p in products]
 
 
@@ -154,9 +154,9 @@ def get_merchant_products(wallet_address: str, db: Session = Depends(get_db)):
 def update_product_status(
     product_id: int,
     status: str = Query(..., pattern="^(approved|rejected|pending)$"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_evm_db)
 ):
-    product = db.query(Product).filter(Product.id == product_id).first()
+    product = db.query(EvmProduct).filter(EvmProduct.id == product_id).first()
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
     product.status = status
@@ -166,14 +166,14 @@ def update_product_status(
 
 # ── Admin routes ───────────────────────────────────────────────────────────────
 @router.get("/admin/all-merchants")
-def all_merchants(db: Session = Depends(get_db)):
-    return db.query(Merchant).order_by(Merchant.created_at.desc()).all()
+def all_merchants(db: Session = Depends(get_evm_db)):
+    return db.query(EvmMerchant).order_by(EvmMerchant.created_at.desc()).all()
 
 
 # ── Edit product ───────────────────────────────────────────────────────────────
 @router.put("/product/{product_id}/edit")
-def edit_product(product_id: int, data: ProductCreate, db: Session = Depends(get_db)):
-    product = db.query(Product).filter(Product.id == product_id).first()
+def edit_product(product_id: int, data: ProductCreate, db: Session = Depends(get_evm_db)):
+    product = db.query(EvmProduct).filter(EvmProduct.id == product_id).first()
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
     if product.merchant_wallet != data.merchant_wallet:
@@ -192,8 +192,8 @@ def edit_product(product_id: int, data: ProductCreate, db: Session = Depends(get
     return {"success": True, "product_id": product_id}
 
 @router.get("/admin/pending-products")
-def pending_products(db: Session = Depends(get_db)):
-    products = db.query(Product).filter(Product.status == "pending").all()
+def pending_products(db: Session = Depends(get_evm_db)):
+    products = db.query(EvmProduct).filter(EvmProduct.status == "pending").all()
     return [_product_to_dict(p) for p in products]
 
 
@@ -212,12 +212,12 @@ def generate_description(data: DescriptionRequest):
 
 
 @router.get("/stats/{wallet_address}")
-def get_merchant_stats(wallet_address: str, db: Session = Depends(get_db)):
+def get_merchant_stats(wallet_address: str, db: Session = Depends(get_db), evm_db: Session = Depends(get_evm_db)):
     """Get merchant score, revenue, and order stats"""
     
     try:
-        # Get merchant profile
-        merchant = db.query(Merchant).filter(Merchant.wallet_address == wallet_address).first()
+        # Get merchant profile from the EVM merchant database
+        merchant = evm_db.query(EvmMerchant).filter(EvmMerchant.wallet_address == wallet_address).first()
         if not merchant:
             return {
                 "merchantScore": 0,

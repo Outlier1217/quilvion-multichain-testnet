@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.orm import Session
-from app.database import get_db, Merchant, Product, Order, Configuration
+from app.database import get_db, get_evm_db, EvmMerchant, EvmProduct, Order, Configuration
 from app.schemas import ConfigurationOut, ConfigurationUpdate
 import os
 from datetime import datetime
@@ -17,14 +17,14 @@ def verify_admin(x_admin_secret: str = Header(...)):
 
 # ── Dashboard stats ────────────────────────────────────────────────────────────
 @router.get("/stats")
-def admin_stats(db: Session = Depends(get_db), _=Depends(verify_admin)):
-    total_merchants = db.query(Merchant).count()
-    pending_merchants = db.query(Merchant).filter(Merchant.status == "pending").count()
-    approved_merchants = db.query(Merchant).filter(Merchant.status == "approved").count()
-    total_products = db.query(Product).count()
-    pending_products = db.query(Product).filter(Product.status == "pending").count()
-    approved_products = db.query(Product).filter(Product.status == "approved").count()
-    rejected_products = db.query(Product).filter(Product.status == "rejected").count()
+def admin_stats(db: Session = Depends(get_evm_db), _=Depends(verify_admin)):
+    total_merchants = db.query(EvmMerchant).count()
+    pending_merchants = db.query(EvmMerchant).filter(EvmMerchant.status == "pending").count()
+    approved_merchants = db.query(EvmMerchant).filter(EvmMerchant.status == "approved").count()
+    total_products = db.query(EvmProduct).count()
+    pending_products = db.query(EvmProduct).filter(EvmProduct.status == "pending").count()
+    approved_products = db.query(EvmProduct).filter(EvmProduct.status == "approved").count()
+    rejected_products = db.query(EvmProduct).filter(EvmProduct.status == "rejected").count()
     return {
         "merchants": {
             "total": total_merchants,
@@ -41,8 +41,8 @@ def admin_stats(db: Session = Depends(get_db), _=Depends(verify_admin)):
 
 # ── All merchants ──────────────────────────────────────────────────────────────
 @router.get("/merchants")
-def get_all_merchants(db: Session = Depends(get_db), _=Depends(verify_admin)):
-    merchants = db.query(Merchant).order_by(Merchant.created_at.desc()).all()
+def get_all_merchants(db: Session = Depends(get_evm_db), _=Depends(verify_admin)):
+    merchants = db.query(EvmMerchant).order_by(EvmMerchant.created_at.desc()).all()
     return [
         {
             "id": m.id,
@@ -63,13 +63,13 @@ def get_all_merchants(db: Session = Depends(get_db), _=Depends(verify_admin)):
 def update_merchant_status(
     merchant_id: int,
     body: dict,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_evm_db),
     _=Depends(verify_admin)
 ):
     status = body.get("status")
     if status not in ["approved", "rejected", "pending"]:
         raise HTTPException(status_code=400, detail="Invalid status")
-    merchant = db.query(Merchant).filter(Merchant.id == merchant_id).first()
+    merchant = db.query(EvmMerchant).filter(EvmMerchant.id == merchant_id).first()
     if not merchant:
         raise HTTPException(status_code=404, detail="Merchant not found")
     merchant.status = status
@@ -78,8 +78,8 @@ def update_merchant_status(
 
 # ── All products ───────────────────────────────────────────────────────────────
 @router.get("/products")
-def get_all_products(db: Session = Depends(get_db), _=Depends(verify_admin)):
-    products = db.query(Product).order_by(Product.created_at.desc()).all()
+def get_all_products(db: Session = Depends(get_evm_db), _=Depends(verify_admin)):
+    products = db.query(EvmProduct).order_by(EvmProduct.created_at.desc()).all()
     return [
         {
             "id": p.id,
@@ -125,13 +125,13 @@ def get_pending_orders(db: Session = Depends(get_db), _=Depends(verify_admin)):
 def update_product_status(
     product_id: int,
     body: dict,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_evm_db),
     _=Depends(verify_admin)
 ):
     status = body.get("status")
     if status not in ["approved", "rejected", "pending"]:
         raise HTTPException(status_code=400, detail="Invalid status")
-    product = db.query(Product).filter(Product.id == product_id).first()
+    product = db.query(EvmProduct).filter(EvmProduct.id == product_id).first()
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
     product.status = status
@@ -142,10 +142,10 @@ def update_product_status(
 @router.delete("/products/{product_id}")
 def delete_product(
     product_id: int,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_evm_db),
     _=Depends(verify_admin)
 ):
-    product = db.query(Product).filter(Product.id == product_id).first()
+    product = db.query(EvmProduct).filter(EvmProduct.id == product_id).first()
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
     db.delete(product)

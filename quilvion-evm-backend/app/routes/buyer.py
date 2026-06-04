@@ -2,7 +2,7 @@
 from pydantic import BaseModel
 from fastapi import APIRouter, Depends  # Depends add karo agar nahi hai
 from sqlalchemy.orm import Session
-from app.database import get_db, Product, Order
+from app.database import get_evm_db, get_db, EvmProduct, Order
 from datetime import datetime, timedelta
 import httpx
 
@@ -14,11 +14,11 @@ class AskRequest(BaseModel):
     chain: str = "sui"
 
 @router.post("/ask")
-async def ask(req: AskRequest, db: Session = Depends(get_db)):
+async def ask(req: AskRequest, db: Session = Depends(get_evm_db)):
     from app.llm.claude_client import call_claude, SYSTEM_BUYER_ASSISTANT
     
     # DB se approved products fetch karo
-    products = db.query(Product).filter(Product.status == "approved").all()
+    products = db.query(EvmProduct).filter(EvmProduct.status == "approved").all()
     
     product_list = "\n".join([
         f"- ID:{p.id} | {p.name} | ${p.price_usdc} USDC | Category: {p.category} | Merchant: {p.merchant_name} | Tags: {p.tags}"
@@ -110,14 +110,14 @@ MOCK_PRODUCTS = [
 @router.get("/products")
 def get_all_products(
     category: str = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_evm_db)
 ):
     """Buyer marketplace — approved products from database"""
-    query = db.query(Product).filter(Product.status == "approved")
+    query = db.query(EvmProduct).filter(EvmProduct.status == "approved")
     if category and category != "All":
-        query = query.filter(Product.category == category)
+        query = query.filter(EvmProduct.category == category)
     
-    products = query.order_by(Product.created_at.desc()).all()
+    products = query.order_by(EvmProduct.created_at.desc()).all()
     
     # If no products in DB, return mock data for testing
     if not products:
