@@ -130,57 +130,36 @@ export default function BuyerDashboard() {
     return matchSearch && matchCat;
   });
 
-  const handleBuy = async (product: Product, usdcCoinId: string) => {
-    if (!account?.address) return;
-    setTxLoading(true);
-    setTxError(null);
-    try {
-      const tx = new Transaction();
-      buildCreateOrder(tx, product.id, product.merchantWallet, product.priceUsdc, usdcCoinId);
-      signAndExecute(
-        { transaction: tx },
-        {
-          onSuccess: async (result) => {
-            try {
-              const response = await createOrderRecord({
-                buyer_wallet: account.address,
-                merchant_wallet: product.merchantWallet,
-                product_id: product.id,
-                product_name: product.name,
-                amount_usdc: product.priceUsdc,
-                status: 'PENDING',
-                chain: 'evm',
-                network: 'somniaTestnet',
-                tx_digest: result.digest,
-                tx_hash: result.hash,
-                risk_score: null,
-                delivery_info: product.deliveryInfo ?? null,
-              });
+const handleBuy = async (product: Product, txHash: string) => {
+  if (!account?.address) return;
+  setTxLoading(true);
+  setTxError(null);
 
-              if (account.address) {
-                fetchBuyerOrders(account.address).then(setOrders);
-              }
+  try {
+    const response = await createOrderRecord({
+      buyer_wallet: account.address,
+      merchant_wallet: product.merchantWallet,
+      product_id: product.id,
+      product_name: product.name,
+      amount_usdc: product.priceUsdc,
+      status: 'PENDING',
+      chain: 'evm',
+      network: 'somniaTestnet',
+      tx_digest: txHash,
+      tx_hash: txHash,
+      risk_score: null,
+      delivery_info: product.deliveryInfo ?? null,
+    });
 
-              setTxSuccess(`Order placed and saved! Order #${response.order_id ?? 'pending'}`);
-              setBuyingProduct(null);
-            } catch (syncErr: any) {
-              console.error('Failed to persist order record:', syncErr);
-              setTxError(syncErr.message || 'Order created on-chain, but failed to save in database');
-            } finally {
-              setTxLoading(false);
-            }
-          },
-          onError: (err) => {
-            setTxError(err.message);
-            setTxLoading(false);
-          },
-        }
-      );
-    } catch (err: any) {
-      setTxError(err.message);
-      setTxLoading(false);
-    }
-  };
+    fetchBuyerOrders(account.address).then(setOrders);
+    setTxSuccess(`Order placed! Order #${response.order_id ?? 'pending'}`);
+    setBuyingProduct(null);
+  } catch (syncErr: any) {
+    setTxError(syncErr.message || 'Order on-chain but DB save failed');
+  } finally {
+    setTxLoading(false);
+  }
+};
 
   const handleDispute = async (orderId: number) => {
     if (!account?.address) return;
