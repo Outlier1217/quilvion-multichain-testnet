@@ -1,5 +1,6 @@
 // src/lib/evm/readConfig.ts
-// EVM-compatible config loader stub for admin UI flows.
+import { JsonRpcProvider, Contract } from 'ethers';
+import { EVM_CONFIG } from './constants';
 
 export interface OnChainConfig {
   platformFeeBps: number;
@@ -9,34 +10,59 @@ export interface OnChainConfig {
   merchantVerificationExpirySeconds: number;
 }
 
-export async function readConfigFromChain(): Promise<OnChainConfig | null> {
-  return null;
-}
+// ✅ Exact function names from ConfigManager.sol
+const CONFIG_MANAGER_ABI = [
+  "function platformFeeBps() external view returns (uint256)",
+  "function adminApprovalThreshold() external view returns (uint256)",
+  "function dailySpendLimit() external view returns (uint256)",
+  "function refundWindow() external view returns (uint256)",
+];
 
-export function formatConfigDisplay(config: OnChainConfig) {
+export async function readConfigFromChain(): Promise<OnChainConfig> {
+  const provider = new JsonRpcProvider(EVM_CONFIG.RPC_URL);
+  const contract = new Contract(
+    EVM_CONFIG.CONTRACTS.CONFIG_MANAGER,
+    CONFIG_MANAGER_ABI,
+    provider
+  );
+
+  const [fee, threshold, dailyLimit, refundWin] = await Promise.all([
+    contract.platformFeeBps(),
+    contract.adminApprovalThreshold(),
+    contract.dailySpendLimit(),
+    contract.refundWindow(),
+  ]);
+
   return {
-    platformFee: (config.platformFeeBps / 100).toFixed(2) + '%',
-    platformFeeBps: config.platformFeeBps,
-    adminApprovalThreshold: (config.adminApprovalThresholdMicro / 1_000_000).toFixed(2),
-    dailySpendLimit: (config.dailySpendLimitMicro / 1_000_000).toFixed(2),
-    refundWindow: (config.disputeRefundWindowSeconds / 86_400).toFixed(0),
-    verificationExpiry: (config.merchantVerificationExpirySeconds / 31_536_000).toFixed(0),
+    platformFeeBps: Number(fee),
+    adminApprovalThresholdMicro: Number(threshold),
+    dailySpendLimitMicro: Number(dailyLimit),
+    disputeRefundWindowSeconds: Number(refundWin),
+    merchantVerificationExpirySeconds: 31_536_000, // not in contract, hardcoded 1 year
   };
 }
 
 export function configsMatch(
-  onChain: OnChainConfig,
-  dbPlatformFee: number,
-  dbApprovalThreshold: number,
-  dbDailySpendLimit: number,
-  dbRefundWindow: number,
-  dbVerificationExpiry: number
+  chain: OnChainConfig,
+  platformFeeBps: number,
+  adminApprovalThresholdMicro: number,
+  dailySpendLimitMicro: number,
+  disputeRefundWindowSeconds: number,
+  merchantVerificationExpirySeconds: number,
 ): boolean {
   return (
-    onChain.platformFeeBps === dbPlatformFee &&
-    onChain.adminApprovalThresholdMicro === dbApprovalThreshold &&
-    onChain.dailySpendLimitMicro === dbDailySpendLimit &&
-    onChain.disputeRefundWindowSeconds === dbRefundWindow &&
-    onChain.merchantVerificationExpirySeconds === dbVerificationExpiry
+    chain.platformFeeBps === platformFeeBps &&
+    chain.adminApprovalThresholdMicro === adminApprovalThresholdMicro &&
+    chain.dailySpendLimitMicro === dailySpendLimitMicro &&
+    chain.disputeRefundWindowSeconds === disputeRefundWindowSeconds
   );
+}
+
+export function formatConfigDisplay(config: OnChainConfig) {
+  return {
+    platformFee: `${(config.platformFeeBps / 100).toFixed(2)}%`,
+    approvalThreshold: `${config.adminApprovalThresholdMicro / 1_000_000} USDC`,
+    dailySpendLimit: `${config.dailySpendLimitMicro / 1_000_000} USDC`,
+    refundWindow: `${config.disputeRefundWindowSeconds / 86400} days`,
+  };
 }

@@ -1,106 +1,61 @@
 // src/lib/evm/configTransactions.ts
-// EVM-compatible config transaction stubs for admin UI flows.
+import { EVM_CONFIG } from './constants';
 
-import { Transaction } from '@/lib/evm/transaction';
+// Helper functions
+export const usdcToMicro = (usdc: number) => Math.round(usdc * 1_000_000);
+export const daysToSeconds = (days: number) => days * 86_400;
 
-export function buildSetPlatformFee(tx: Transaction, basisPoints: number): void {
-  tx.moveCall?.({
-    target: 'EVM_SET_PLATFORM_FEE',
-    arguments: [basisPoints],
-  });
+const CONFIG_MANAGER_ABI = [
+  "function setPlatformFee(uint256 bps) external",
+  "function setDailySpendLimit(uint256 amount) external",
+  "function setAdminApprovalThreshold(uint256 amount) external",
+  "function setDisputeRefundWindow(uint256 seconds_) external",
+  "function setMerchantVerificationExpiry(uint256 seconds_) external",
+];
+
+// These build ethers transaction objects for use with wagmi/viem sendTransaction
+export function buildSetPlatformFee(tx: any, bps: number) {
+  tx.contractAddress = EVM_CONFIG.CONTRACTS.CONFIG_MANAGER;
+  tx.abi = CONFIG_MANAGER_ABI;
+  tx.functionName = 'setPlatformFee';
+  tx.args = [BigInt(bps)];
 }
 
-export function buildSetAdminApprovalThreshold(tx: Transaction, microUSDC: number | string): void {
-  tx.moveCall?.({
-    target: 'EVM_SET_ADMIN_APPROVAL_THRESHOLD',
-    arguments: [microUSDC],
-  });
+export function buildSetDailySpendLimit(tx: any, microAmount: number) {
+  tx.contractAddress = EVM_CONFIG.CONTRACTS.CONFIG_MANAGER;
+  tx.abi = CONFIG_MANAGER_ABI;
+  tx.functionName = 'setDailySpendLimit';
+  tx.args = [BigInt(microAmount)];
 }
 
-export function buildSetDailySpendLimit(tx: Transaction, microUSDC: number | string): void {
-  tx.moveCall?.({
-    target: 'EVM_SET_DAILY_SPEND_LIMIT',
-    arguments: [microUSDC],
-  });
+export function buildSetAdminApprovalThreshold(tx: any, microAmount: number) {
+  tx.contractAddress = EVM_CONFIG.CONTRACTS.CONFIG_MANAGER;
+  tx.abi = CONFIG_MANAGER_ABI;
+  tx.functionName = 'setAdminApprovalThreshold';
+  tx.args = [BigInt(microAmount)];
 }
 
-export function buildSetRefundWindow(tx: Transaction, seconds: number | string): void {
-  tx.moveCall?.({
-    target: 'EVM_SET_REFUND_WINDOW',
-    arguments: [seconds],
-  });
+export function buildSetRefundWindow(tx: any, seconds: number) {
+  tx.contractAddress = EVM_CONFIG.CONTRACTS.CONFIG_MANAGER;
+  tx.abi = ["function setRefundWindow(uint256 seconds_) external"];
+  tx.functionName = 'setRefundWindow';   // ✅ exact sol function name
+  tx.args = [BigInt(seconds)];
 }
 
-export function buildSetVerificationExpiry(tx: Transaction, seconds: number | string): void {
-  tx.moveCall?.({
-    target: 'EVM_SET_VERIFICATION_EXPIRY',
-    arguments: [seconds],
-  });
+export function buildSetVerificationExpiry(tx: any, seconds: number) {
+  tx.contractAddress = EVM_CONFIG.CONTRACTS.CONFIG_MANAGER;
+  tx.abi = CONFIG_MANAGER_ABI;
+  tx.functionName = 'setMerchantVerificationExpiry';
+  tx.args = [BigInt(seconds)];
 }
 
-export function usdcToMicro(usdc: number): number {
-  return usdc * 1_000_000;
-}
-
-export function microToUsdc(micro: number): number {
-  return micro / 1_000_000;
-}
-
-export function daysToSeconds(days: number): number {
-  return days * 86_400;
-}
-
-export function secondsToDays(seconds: number): number {
-  return seconds / 86_400;
-}
-
-export const CONFIG_PRESETS = {
-  platformFee: {
-    LOW: 100,
-    STANDARD: 250,
-    MEDIUM: 300,
-    HIGH: 500,
-  },
-  dailySpendLimit: {
-    CONSERVATIVE: usdcToMicro(100),
-    STANDARD: usdcToMicro(1000),
-    GENEROUS: usdcToMicro(5000),
-    UNLIMITED: usdcToMicro(1_000_000),
-  },
-  approvalThreshold: {
-    LOW: usdcToMicro(100),
-    STANDARD: usdcToMicro(500),
-    MEDIUM: usdcToMicro(1000),
-    HIGH: usdcToMicro(5000),
-  },
-  refundWindow: {
-    SHORT: daysToSeconds(1),
-    MEDIUM: daysToSeconds(3),
-    STANDARD: daysToSeconds(7),
-    LONG: daysToSeconds(14),
-    EXTENDED: daysToSeconds(30),
-  },
-  verificationExpiry: {
-    SIX_MONTHS: 15_768_000,
-    ONE_YEAR: 31_536_000,
-    TWO_YEARS: 63_072_000,
-    THREE_YEARS: 94_608_000,
-  },
-};
-
-export function describeConfig(name: string, value: number | string): string {
-  switch (name) {
-    case 'platformFee':
-      return `${value} bps (${Number(value) / 100}%)`;
-    case 'approvalThreshold':
-    case 'dailySpendLimit':
-      return `${microToUsdc(Number(value))} USDC`;
-    case 'refundWindow':
-      return `${secondsToDays(Number(value))} days`;
-    case 'verificationExpiry':
-      const years = secondsToDays(Number(value)) / 365;
-      return `${years.toFixed(1)} years`;
-    default:
-      return String(value);
+export function describeConfig(key: string, value: number): string {
+  switch (key) {
+    case 'platformFee': return `${(value / 100).toFixed(2)}% fee`;
+    case 'dailySpendLimit': return `${value / 1_000_000} USDC daily limit`;
+    case 'approvalThreshold': return `${value / 1_000_000} USDC threshold`;
+    case 'refundWindow': return `${value / 86400} day window`;
+    case 'verificationExpiry': return `${value / 31536000} year expiry`;
+    default: return String(value);
   }
 }

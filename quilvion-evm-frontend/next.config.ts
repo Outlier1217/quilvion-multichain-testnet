@@ -1,3 +1,7 @@
-import type { NextConfig } from 'next';
-const nextConfig: NextConfig = {};
-export default nextConfig;
+// next.config.ts
+const nextConfig = {
+  // ...existing config...
+  experimental: {
+    missingSuspenseWithCSRBailout: false,
+  },
+};

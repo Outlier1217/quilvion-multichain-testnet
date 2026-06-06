@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
-from app.database import get_db, get_evm_db, EvmMerchant, EvmProduct, Order
+from app.database import get_db, Merchant, get_evm_db, EvmMerchant, EvmProduct, Order
 from app.schemas import MerchantCreate, MerchantOut, ProductCreate
 from app.encrypt import encrypt_delivery_info
 from pydantic import BaseModel
@@ -81,7 +81,7 @@ def register_merchant(data: MerchantCreate, db: Session = Depends(get_evm_db)):
     if existing:
         return existing
 
-    merchant = Merchant(
+    merchant = EvmMerchant(          # ← was Merchant, now EvmMerchant
         wallet_address=data.wallet_address,
         company_name=data.company_name,
         description=data.description,

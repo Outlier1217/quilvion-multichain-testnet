@@ -4,103 +4,65 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Shield, Package, Store, CheckCircle, XCircle,
-  Clock, BarChart3, Eye, Trash2, RefreshCw, Lock,
+  Clock, BarChart3, Trash2, RefreshCw, Lock,
   AlertTriangle, Scale, Settings, Edit2, X
 } from 'lucide-react';
 import { ConnectButton } from '@/components/ConnectButton';
-import { useSignAndExecuteTransaction, useCurrentAccount } from '@/lib/evm/wallet';
-import { Transaction } from '@/lib/evm/transaction';
-import { buildCreateOrder, buildCancelOrder, buildRaiseDispute, buildReleaseEscrow } from '@/lib/evm/transactions';
-import {
-  buildSetPlatformFee,
-  buildSetDailySpendLimit,
-  buildSetAdminApprovalThreshold,
-  buildSetRefundWindow,
-  buildSetVerificationExpiry,
-  usdcToMicro,
-  daysToSeconds,
-  describeConfig,
-} from '@/lib/evm/configTransactions';
-import { readConfigFromChain, formatConfigDisplay, configsMatch, type OnChainConfig } from '@/lib/evm/readConfig';
-import { fetchMerchantOrders } from '@/lib/api';
+import { useCurrentAccount, useWriteEvmContract, waitForTx } from '@/lib/evm/wallet';
+import { readConfigFromChain, configsMatch, type OnChainConfig } from '@/lib/evm/readConfig';
 import { API_BASE } from '@/lib/evm/constants';
 
 const API = API_BASE;
-const ADMIN_WALLET = '0x8bc4555d0f1c8365fd377e9823f993b59b90b62e5eb375db084112f2e29711fa';
-
-// ── Admin auth ─────────────────────────────────────────────────────────────────
+const ADMIN_WALLET = '0x7072f9c4D9daE0D62B1C24f74BFFDd818Dc65F94';
 const ADMIN_SECRET = process.env.NEXT_PUBLIC_ADMIN_SECRET || 'quilvion-admin-2025';
 
 function useAdminApi() {
-  const headers = {
-    'Content-Type': 'application/json',
-    'x-admin-secret': ADMIN_SECRET,
-  };
-
+  const headers = { 'Content-Type': 'application/json', 'x-admin-secret': ADMIN_SECRET };
   const request = async (path: string, init?: RequestInit) => {
-    const res = await fetch(`${API}/api/admin${path}`, {
-      ...init,
-      headers,
-    });
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`Admin API error ${res.status}: ${text || res.statusText}`);
-    }
+    const res = await fetch(`${API}/api/admin${path}`, { ...init, headers });
+    if (!res.ok) { const text = await res.text(); throw new Error(`Admin API error ${res.status}: ${text}`); }
     return res.json();
   };
-
   const get = (path: string) => request(path);
-  const patch = (path: string, body: object) =>
-    request(path, { method: 'PATCH', body: JSON.stringify(body) });
+  const patch = (path: string, body: object) => request(path, { method: 'PATCH', body: JSON.stringify(body) });
   const del = (path: string) => request(path, { method: 'DELETE' });
-
   return { get, patch, del };
 }
 
-// ── Status Badge ───────────────────────────────────────────────────────────────
 function StatusBadge({ status }: { status: string }) {
   const config = {
     approved: { color: '#10b981', bg: 'rgba(16,185,129,0.12)', label: '✓ Approved' },
     pending:  { color: '#f59e0b', bg: 'rgba(245,158,11,0.12)',  label: '⏳ Pending' },
     rejected: { color: '#ef4444', bg: 'rgba(239,68,68,0.12)',   label: '✗ Rejected' },
   }[status] ?? { color: '#fff', bg: 'rgba(255,255,255,0.05)', label: status };
-
   return (
     <span className="text-xs px-2.5 py-1 rounded-full font-semibold"
-      style={{ background: config.bg, color: config.color }}>
-      {config.label}
-    </span>
+      style={{ background: config.bg, color: config.color }}>{config.label}</span>
   );
 }
 
-// ── Main Component ─────────────────────────────────────────────────────────────
 export default function AdminPanel() {
-  const [authed, setAuthed] = useState(false);
-  const [tab, setTab] = useState<'stats' | 'merchants' | 'products' | 'disputes' | 'config'>('stats');
-  const [stats, setStats] = useState<any>(null);
-  const [merchants, setMerchants] = useState<any[]>([]);
-  const [products, setProducts] = useState<any[]>([]);
+  const [authed, setAuthed]             = useState(false);
+  const [tab, setTab]                   = useState<'stats'|'merchants'|'products'|'disputes'|'config'>('stats');
+  const [stats, setStats]               = useState<any>(null);
+  const [merchants, setMerchants]       = useState<any[]>([]);
+  const [products, setProducts]         = useState<any[]>([]);
   const [pendingOrders, setPendingOrders] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [txLoading, setTxLoading] = useState(false);
-  
-  // Config edit states
+  const [loading, setLoading]           = useState(false);
+  const [txLoading, setTxLoading]       = useState(false);
   const [editingConfig, setEditingConfig] = useState<string | null>(null);
   const [configValues, setConfigValues] = useState({
-    platformFee: 250,
-    dailySpendLimit: 1000,
-    approvalThreshold: 500,
-    refundWindow: 7,
-    verificationExpiry: 1,
+    platformFee: 250, dailySpendLimit: 1000,
+    approvalThreshold: 500, refundWindow: 7, verificationExpiry: 1,
   });
-  const [onChainConfig, setOnChainConfig] = useState<OnChainConfig | null>(null);
-  const [isSynced, setIsSynced] = useState(true);
+  const [onChainConfig, setOnChainConfig]   = useState<OnChainConfig | null>(null);
+  const [isSynced, setIsSynced]             = useState(true);
   const [loadingOnChain, setLoadingOnChain] = useState(false);
-  
-  const account = useCurrentAccount();
-  const { mutate: signAndExecute } = useSignAndExecuteTransaction();
-  const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
-  const api = useAdminApi();
+  const [toast, setToast]                   = useState<{ msg: string; ok: boolean } | null>(null);
+
+  const account                  = useCurrentAccount();
+  const { writeContractAsync }   = useWriteEvmContract();   // ✅ only one declaration
+  const api                      = useAdminApi();
 
   useEffect(() => {
     const isAdminWallet = account?.address?.toLowerCase() === ADMIN_WALLET.toLowerCase();
@@ -201,28 +163,20 @@ export default function AdminPanel() {
     loadAll();
   };
 
-  const handleResolveDispute = async (orderId: number) => {
+const handleResolveDispute = async (orderId: number) => {
     if (!account) return;
     setTxLoading(true);
     try {
-      const tx = new Transaction();
-      buildRaiseDispute(tx, orderId);
-      signAndExecute(
-        { transaction: tx },
-        {
-          onSuccess: () => {
-            showToast(`Dispute #${orderId} raised!`);
-            setTxLoading(false);
-            loadAll();
-          },
-          onError: (err) => {
-            showToast(err.message, false);
-            setTxLoading(false);
-          }
-        }
-      );
+      const COMMERCE_CORE = '0xA1fa19D58335b1341c5B8217E26C766fB605B1bA' as `0x${string}`;
+      const ABI = [{ name: 'raiseDispute', type: 'function', inputs: [{ name: 'orderId', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' }] as const;
+      const txHash = await writeContractAsync({ address: COMMERCE_CORE, abi: ABI, functionName: 'raiseDispute', args: [BigInt(orderId)] });
+      showToast('Tx sent! Waiting...');
+      await waitForTx(txHash);
+      showToast(`Dispute #${orderId} raised!`);
+      loadAll();
     } catch (err: any) {
-      showToast(err.message, false);
+      showToast(err.shortMessage || err.message, false);
+    } finally {
       setTxLoading(false);
     }
   };
@@ -231,103 +185,117 @@ export default function AdminPanel() {
     if (!account) return;
     setTxLoading(true);
     try {
-      const tx = new Transaction();
-      buildReleaseEscrow(tx, orderId);
-      signAndExecute(
-        { transaction: tx },
-        {
-          onSuccess: () => {
-            showToast(`Escrow for order #${orderId} released!`);
-            setTxLoading(false);
-            loadAll();
-          },
-          onError: (err) => {
-            showToast(err.message, false);
-            setTxLoading(false);
-          }
-        }
-      );
+      const ESCROW_LOGIC = '0xCE968012e486861B606Fe4790a2cf917695133c9' as `0x${string}`;
+      const ABI = [{ name: 'releaseEscrow', type: 'function', inputs: [{ name: 'orderId', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' }] as const;
+      const txHash = await writeContractAsync({ address: ESCROW_LOGIC, abi: ABI, functionName: 'releaseEscrow', args: [BigInt(orderId)] });
+      showToast('Tx sent! Waiting...');
+      await waitForTx(txHash);
+      showToast(`Escrow #${orderId} released!`);
+      loadAll();
     } catch (err: any) {
-      showToast(err.message, false);
+      showToast(err.shortMessage || err.message, false);
+    } finally {
       setTxLoading(false);
     }
   };
 
-  const updateConfigOnChain = async (configType: string) => {
-    if (!account) {
-      showToast('Wallet not connected', false);
-      return;
+const updateConfigOnChain = async (configType: string) => {
+  if (!account) {
+    showToast('Wallet not connected', false);
+    return;
+  }
+
+  const CONFIG_MANAGER = '0xbbb3907C31E127664f3E7dA49fF5Fe4c748f9A6c' as `0x${string}`;
+  
+  const ABI = [
+    { name: 'setPlatformFee',            type: 'function', inputs: [{ name: 'bps',     type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
+    { name: 'setDailySpendLimit',        type: 'function', inputs: [{ name: 'amount',  type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
+    { name: 'setAdminApprovalThreshold', type: 'function', inputs: [{ name: 'amount',  type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
+    { name: 'setRefundWindow',           type: 'function', inputs: [{ name: 'seconds_',type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
+  ] as const;
+
+  setTxLoading(true);
+  try {
+    let functionName: string;
+    let args: [bigint];
+
+    switch (configType) {
+      case 'platformFee':
+        functionName = 'setPlatformFee';
+        args = [BigInt(configValues.platformFee)];
+        break;
+      case 'dailySpendLimit':
+        functionName = 'setDailySpendLimit';
+        args = [BigInt(Math.round(configValues.dailySpendLimit * 1_000_000))];
+        break;
+      case 'approvalThreshold':
+        functionName = 'setAdminApprovalThreshold';
+        args = [BigInt(Math.round(configValues.approvalThreshold * 1_000_000))];
+        break;
+      case 'refundWindow':
+        functionName = 'setRefundWindow';
+        args = [BigInt(configValues.refundWindow * 86_400)];
+        break;
+      case 'verificationExpiry':
+        // Not in contract — only DB update
+        await api.patch('/configuration', {
+          merchant_verification_expiry_seconds: configValues.verificationExpiry * 31_536_000,
+        });
+        showToast('Verification expiry updated (DB only)!');
+        setEditingConfig(null);
+        setTxLoading(false);
+        loadAll();
+        return;
+      default:
+        throw new Error('Unknown config type');
     }
 
-    setTxLoading(true);
-    try {
-      const tx = new Transaction();
+    // ✅ Send real EVM transaction
+    const txHash = await writeContractAsync({
+      address: CONFIG_MANAGER,
+      abi: ABI,
+      functionName: functionName as any,
+      args: args,
+    });
 
-      switch (configType) {
-        case 'platformFee':
-          buildSetPlatformFee(tx, configValues.platformFee);
-          break;
-        case 'dailySpendLimit':
-          buildSetDailySpendLimit(tx, usdcToMicro(configValues.dailySpendLimit));
-          break;
-        case 'approvalThreshold':
-          buildSetAdminApprovalThreshold(tx, usdcToMicro(configValues.approvalThreshold));
-          break;
-        case 'refundWindow':
-          buildSetRefundWindow(tx, daysToSeconds(configValues.refundWindow));
-          break;
-        case 'verificationExpiry':
-          buildSetVerificationExpiry(tx, configValues.verificationExpiry * 31536000);
-          break;
-      }
+    showToast(`Tx sent! Waiting for confirmation...`);
 
-      signAndExecute(
-        { transaction: tx },
-        {
-          onSuccess: async () => {
-            showToast(`Configuration updated on-chain!`);
-            setEditingConfig(null);
-            setTxLoading(false);
-            
-            // Update database with new values
-            try {
-              const updatePayload: any = {};
-              
-              switch (configType) {
-                case 'platformFee':
-                  updatePayload.platform_fee_bps = configValues.platformFee;
-                  break;
-                case 'dailySpendLimit':
-                  updatePayload.daily_spend_limit_micro = usdcToMicro(configValues.dailySpendLimit);
-                  break;
-                case 'approvalThreshold':
-                  updatePayload.admin_approval_threshold_micro = usdcToMicro(configValues.approvalThreshold);
-                  break;
-                case 'refundWindow':
-                  updatePayload.dispute_refund_window_seconds = daysToSeconds(configValues.refundWindow);
-                  break;
-                case 'verificationExpiry':
-                  updatePayload.merchant_verification_expiry_seconds = configValues.verificationExpiry * 31536000;
-                  break;
-              }
-              
-              await api.patch('/configuration', updatePayload);
-            } catch (err) {
-              console.error('Failed to update database:', err);
-            }
-          },
-          onError: (err) => {
-            showToast(`Error: ${err.message}`, false);
-            setTxLoading(false);
-          }
-        }
-      );
-    } catch (err: any) {
-      showToast(`Failed: ${err.message}`, false);
-      setTxLoading(false);
+    // Wait for receipt
+    const { createPublicClient, http } = await import('viem');
+    const client = createPublicClient({
+      transport: http('https://dream-rpc.somnia.network'),
+    });
+    await client.waitForTransactionReceipt({ hash: txHash });
+
+    showToast(`✅ On-chain updated!`);
+
+    // Now sync to DB
+    const updatePayload: any = {};
+    switch (configType) {
+      case 'platformFee':
+        updatePayload.platform_fee_bps = configValues.platformFee;
+        break;
+      case 'dailySpendLimit':
+        updatePayload.daily_spend_limit_micro = Math.round(configValues.dailySpendLimit * 1_000_000);
+        break;
+      case 'approvalThreshold':
+        updatePayload.admin_approval_threshold_micro = Math.round(configValues.approvalThreshold * 1_000_000);
+        break;
+      case 'refundWindow':
+        updatePayload.dispute_refund_window_seconds = configValues.refundWindow * 86_400;
+        break;
     }
-  };
+    await api.patch('/configuration', updatePayload);
 
+    setEditingConfig(null);
+    loadAll();
+  } catch (err: any) {
+    console.error(err);
+    showToast(`Failed: ${err.shortMessage || err.message}`, false);
+  } finally {
+    setTxLoading(false);
+  }
+};
   // ── Gate screen for non-admin wallets ────────────────────────────────────────
   if (!authed) {
     return (
@@ -1117,7 +1085,8 @@ export default function AdminPanel() {
                   Click the Edit button (✏️) on any parameter card to update it directly on-chain via a signed transaction.
                 </p>
                 <p className="mt-3 pt-3 border-t border-white/10">
-                  All updates require <span className="text-blue-300">ADMIN_ROLE</span>. Package ID: <span className="text-white/40 font-mono text-[10px]">0xb6ee5d919c1ea7a727b9d86af1bc9259b4f68584b9feb03432f545f5a384a2c4</span>
+                  All updates require <span className="text-blue-300">ADMIN_ROLE</span>. ConfigManager: <span className="text-white/40 font-mono text-[10px]">0xbbb3907C31E127664f3E7dA49fF5Fe4c748f9A6c</span>
+
                 </p>
               </div>
             </div>
