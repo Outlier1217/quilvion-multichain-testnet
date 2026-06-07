@@ -130,7 +130,7 @@ export default function BuyerDashboard() {
     return matchSearch && matchCat;
   });
 
-const handleBuy = async (product: Product, txHash: string) => {
+const handleBuy = async (product: Product, txHash: string, orderStatus: string = 'PENDING') => {
   if (!account?.address) return;
   setTxLoading(true);
   setTxError(null);
@@ -142,7 +142,7 @@ const handleBuy = async (product: Product, txHash: string) => {
       product_id: product.id,
       product_name: product.name,
       amount_usdc: product.priceUsdc,
-      status: 'PENDING',
+      status: orderStatus,
       chain: 'evm',
       network: 'somniaTestnet',
       tx_digest: txHash,

@@ -154,53 +154,35 @@ async def get_buyer_stats(
     db: Session = Depends(get_db)
 ):
     """Get buyer XP, tier, daily spend, and order stats"""
-    
+    from app.database import BuyerProfile
     try:
-        # Get all orders for this buyer
         orders = db.query(Order).filter(Order.buyer_wallet == wallet_address).all()
-        
         total_orders = len(orders)
-        completed_orders = sum(1 for o in orders if o.status == "COMPLETED")
-        
-        # Calculate daily spent from today's orders
+        completed_orders = sum(1 for o in orders if o.status in ("COMPLETED", "ESCROW_RELEASED"))
+
         today = datetime.utcnow().date()
-        today_orders = [o for o in orders if o.created_at and o.created_at.date() == today]
-        daily_spent = sum(o.amount_usdc for o in today_orders) if today_orders else 0.0
-        
-        # Calculate XP: 10 XP per completed order (from README)
-        xp = completed_orders * 10
-        
-        # Determine tier based on XP (from README)
-        if xp >= 500:
-            tier = "Gold"
-        elif xp >= 100:
-            tier = "Silver"
+        daily_spent = sum(o.amount_usdc for o in orders if o.created_at and o.created_at.date() == today)
+
+        profile = db.query(BuyerProfile).filter(BuyerProfile.wallet_address == wallet_address).first()
+        if profile:
+            xp = profile.xp
+            tier = profile.tier
         else:
-            tier = "Bronze"
-        
-        average_order = sum(o.amount_usdc for o in orders) / len(orders) if orders else 0.0
-        
+            xp = (total_orders * 5) + (completed_orders * 10)
+            tier = "Gold" if xp >= 500 else "Silver" if xp >= 100 else "Bronze"
+
         return {
             "xp": xp,
             "tier": tier,
             "dailySpent": daily_spent,
-            "dailyLimit": 1000,  # From README: 1,000 USDC
+            "dailyLimit": 1000,
             "totalOrders": total_orders,
             "completedOrders": completed_orders,
-            "averageOrderValue": average_order,
+            "averageOrderValue": sum(o.amount_usdc for o in orders) / len(orders) if orders else 0.0,
         }
-    
     except Exception as e:
         print(f"Error fetching buyer stats: {str(e)}")
-        return {
-            "xp": 0,
-            "tier": "Bronze",
-            "dailySpent": 0,
-            "dailyLimit": 1000,
-            "totalOrders": 0,
-            "completedOrders": 0,
-            "averageOrderValue": 0,
-        }
+        return {"xp": 0, "tier": "Bronze", "dailySpent": 0, "dailyLimit": 1000, "totalOrders": 0, "completedOrders": 0, "averageOrderValue": 0}
 
 
 @router.get("/{wallet_address}")

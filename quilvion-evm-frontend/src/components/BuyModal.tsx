@@ -30,7 +30,7 @@ interface BuyModalProps {
   product: Product;
   walletAddress: string;
   onClose: () => void;
-  onConfirm: (product: Product, txHash: string) => void;
+  onConfirm: (product: Product, txHash: string, status?: string) => void;
   loading: boolean;
 }
 
@@ -141,11 +141,15 @@ const handleBuy = async () => {
       });
 
       setTxStep('confirming');
-      await publicClient.waitForTransactionReceipt({ hash: orderTx });
+      const receipt = await publicClient.waitForTransactionReceipt({ hash: orderTx });
+
+      // Check if OrderCompleted event fired (auto-complete for small orders)
+      const ADMIN_THRESHOLD_MICRO = BigInt(500 * 1_000_000); // 500 USDC
+      const autoCompleted = amountMicro < ADMIN_THRESHOLD_MICRO;
 
       setTxHash(orderTx);
       setTxStep('done');
-      onConfirm(product, orderTx);
+      onConfirm(product, orderTx, autoCompleted ? 'COMPLETED' : 'PENDING');
 
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message.split('\n')[0].slice(0, 150) : 'Transaction failed';

@@ -238,7 +238,24 @@ export async function fetchBuyerOrders(walletAddress: string) {
       console.warn(`Failed to load buyer orders: ${res.status}`);
       return [];
     }
-    return await res.json();
+    const data = await res.json();
+    return data.map((o: any) => ({
+      id: o.id,
+      productName: o.product_name,
+      amountUsdc: o.amount_usdc,
+      status: o.status,
+      createdAt: o.created_at ? new Date(o.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : null,
+      txDigest: o.tx_digest,
+      txHash: o.tx_hash,
+      merchantWallet: o.merchant_wallet,
+      buyerWallet: o.buyer_wallet,
+      productId: o.product_id,
+      riskScore: o.risk_score,
+      deliveryInfo: o.delivery_info,
+      chain: o.chain,
+      network: o.network,
+      updatedAt: o.updated_at,
+    }));
   } catch (err: any) {
     console.error("fetchBuyerOrders error:", err);
     return [];
