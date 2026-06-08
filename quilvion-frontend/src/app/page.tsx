@@ -22,7 +22,7 @@ const WALLETS = [
     glow: 'rgba(246,133,27,0.4)',
     desc: 'For Ethereum, Polygon & EVM chains',
     // redirect: '/evm',
-    redirect: 'https://musical-space-xylophone-pj64xv6qwr7rc7q4g-3000.app.github.dev',
+    redirect: 'https://evm.quilvion.xyz',
   },
   {
     id: 'phantom',
