@@ -1,4 +1,5 @@
 export class Transaction {
+  operations: any[] = [];
   constructor() {
     // EVM frontend does not build actual Move transactions.
     this.operations = [];
