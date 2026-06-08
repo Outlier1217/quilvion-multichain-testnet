@@ -11,9 +11,10 @@ interface Order {
   status: string;
   createdAt: string;
   txDigest?: string;
+  txHash?: string;
   merchantWallet?: string;
   riskScore?: number | null;
-  deliveryInfo?: string | null;   // ✅ NEW
+  deliveryInfo?: string | null;
 }
 
 const STATUS_CONFIG: Record<string, { color: string; bg: string; icon: any; label: string }> = {
