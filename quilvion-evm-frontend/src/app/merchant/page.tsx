@@ -188,25 +188,17 @@ export default function MerchantDashboard() {
     if (!account) return;
     setOrdersLoading(true);
     try {
-      const tx = new Transaction();
-      // Use a dummy hash for demo
-      buildDeliverDigitalProduct(tx, orderId, "ipfs://QmDummyHash" + orderId);
-      signAndExecute(
-        { transaction: tx },
-        {
-          onSuccess: () => {
-            setTxSuccess(`Order #${orderId} marked as delivered!`);
-            loadMerchantData();
-            setOrdersLoading(false);
-          },
-          onError: (err) => {
-            setTxError(err.message);
-            setOrdersLoading(false);
-          }
-        }
-      );
+      const res = await fetch(`${(await import('@/lib/evm/constants')).API_BASE}/api/orders/sync-status`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order_id: orderId, status: 'COMPLETED', wallet: walletAddress }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      setTxSuccess(`Order #${orderId} marked as delivered!`);
+      loadMerchantData();
     } catch (err: any) {
       setTxError(err.message);
+    } finally {
       setOrdersLoading(false);
     }
   };
